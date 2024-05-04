@@ -1,6 +1,8 @@
 import glob
 import os
 import sys
+import carla
+import logging
 
 try:
     sys.path.append(glob.glob('../carla/dist/carla-*%d.%d-%s.egg' % (
@@ -10,8 +12,6 @@ try:
 except IndexError:
     pass
 
-import carla
-import logging
 
 class Connection():
     def __init__(self, host, port, town):
@@ -25,8 +25,6 @@ class Connection():
         try:
             self.client = carla.Client(self.host, self.port)
             self.client.set_timeout(10.0)
-            print(self.town)
-            # print(self.client.get_available_maps())
             self.world = self.client.load_world(self.town) 
             return self.client, self.world
         

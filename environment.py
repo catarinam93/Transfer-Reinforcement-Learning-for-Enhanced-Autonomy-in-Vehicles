@@ -7,91 +7,84 @@ import gymnasium as gym
 from gymnasium import spaces
 from settings import *
 import sys
+import torch
+
 sys.path.append('C:\\Users\\Caty\\Downloads\\CARLA_0.9.15\\WindowsNoEditor\\PythonAPI\\carla')
 from agents.navigation.global_route_planner import GlobalRoutePlanner
 
 
 class Environment(gym.Env):
-    def __init__(self, client, world, args):
+    def __init__(self, client, world, args, encoder):
         self.client = client
-        self.world = world
+        self.world = world # Get the Town of the simulation
         self.args = args
         self.ego_vehicle = None
-        self.start_point = None
-        self.spawn_points = None
-        self.route = None
+        self.start_point = None # Start point of the ego vehicle
+        self.spawn_points = None # Spawn points of the ego vehicle
+        self.route = None # Route of the ego vehicle
+        self.collision_occured = False # Collision flag
 
-        self.im_width = 640
-        self.im_height = 480
+        self.encoder = encoder # Encoder of the environment
+        self.n_camera_features = 100 # Number of camera features
 
         self.actor_list = []
         self.sensor_list = []
         self.walker_list = []
+        self.camera = None
+        self.collision_sensor = None
 
-        self.sensor_bounds = [0, 255] # Sensor bounds of the environment
-        self.angle_bounds = [-np.pi, np.pi] # Angle bounds of the environment
-        self.distance_bounds = [0, np.inf] # Distance bounds of the environment
+        # Limits for the action space
+        self.linear_velocity_low = -1.0
+        self.linear_velocity_high = 1.0
+        self.angular_velocity_low = -1.0
+        self.angular_velocity_high = 1.0
 
-        self.steering_bounds = [-1.0, 1.0] # Steering bounds of the environment
-        self.acceleration_bounds = [-1.0, 1.0] # Acceleration bounds of the environment
+        # Limits for the observation space
+        self.camera_features_low = -np.inf
+        self.camera_features_high = np.inf
+        self.distance_low = 0
+        self.distance_high = np.inf
+        self.angle_low = -np.pi
+        self.angle_high = np.pi
 
-        self.action_space = spaces.Box(low=np.array([self.acceleration_bounds[0], self.steering_bounds[0]]),
-                                        high=np.array([self.acceleration_bounds[1], self.steering_bounds[1]]),
-                                        dtype=np.float32) # Action space of the environment
+        # Size of the observation space
+        self.camera_features_size = 100
+        self.distance_size = 1
+        self.angle_size = 1
 
-      
+        # Total size of the observation space
+        self.total_observation_size = self.camera_features_size + 1 + 1 + 1  # Camera features + distance + angle + len_route
 
-        self.observation_space = spaces.Tuple((spaces.Box(low=np.array([self.distance_bounds[0], self.angle_bounds[0]]),
-                                                            high=np.array([self.distance_bounds[1], self.angle_bounds[1]]),
-                                                            dtype=np.float32), # Observation space of the environment for the distance and angle towards the next waypoint
-                                                spaces.Box(low=np.array([self.sensor_bounds[0]] * IM_HEIGHT * IM_WIDTH), 
-                                                            high=np.array([self.sensor_bounds[1]] * IM_HEIGHT * IM_WIDTH), # Observation space of the environment for the sensor data
-                                                            dtype=np.float32)))
+        self.action_space = spaces.Box(low=np.array([self.linear_velocity_low, self.angular_velocity_low]), 
+                                        high=np.array([self.linear_velocity_high, self.angular_velocity_high]), 
+                                        dtype=np.float32)
 
-
-
-    def _get_obs(self):
-        distance, angle = self.distance_angle_towards_waypoint()
-        return {" Distance to the next waypoint", distance, "\n",
-                "Angle towards the next waypoint", angle,"\n",
-                "Distance to the target (number of waypoints)", len(self.route)}
-
-    # def _get_info(self):
-    #     return {
-    #         "distance": np.linalg.norm(
-    #             self._agent_location - self._target_location, ord=1
-    #         )
-    #     }
-    
-    def distance_angle_towards_waypoint(self):
-        current_position = np.array([self.ego_vehicle.get_location().x, self.ego_vehicle.get_location().y, self.ego_vehicle.get_location().z])
-        next_waypoint_position = np.array([self.route[0][0].transform.location.x, self.route[0][0].transform.location.y, self.route[0][0].transform.location.z])
-        distance = np.linalg.norm(next_waypoint_position - current_position) # Distance to the next waypoint
-
-        current_rotation = np.array([self.ego_vehicle.get_transform().rotation.pitch , self.ego_vehicle.get_transform().rotation.yaw , self.ego_vehicle.get_transform().rotation.roll])
-        next_waypoint_rotation = np.array([self.route[0][0].transform.rotation.pitch , self.route[0][0].transform.rotation.yaw , self.route[0][0].transform.rotation.roll])
-
-        # Normalize the rotation vectors
-        current_rotation_normalized = current_rotation / np.linalg.norm(current_rotation)
-        next_waypoint_rotation_normalized = next_waypoint_rotation / np.linalg.norm(next_waypoint_rotation)
+        self.observation_space = spaces.Box(low=np.array([self.camera_features_low] * self.camera_features_size + [self.distance_low] + [self.angle_low]), 
+                                            high=np.array([self.camera_features_high] * self.camera_features_size + [self.distance_high] + [self.angle_high]), 
+                                            dtype=np.float32)
         
-        dot_product = np.dot(current_rotation_normalized, next_waypoint_rotation_normalized) # Dot product of the vectors
+        # Version with Dict (action space dict is not supported by PPO algorithm)
+        # self.action_space = spaces.Dict({"linear_velocity": spaces.Box(low=-1.0, high=1.0, shape=(1,), dtype=np.float32),  
+        #                                 "angular_velocity": spaces.Box(low=-1.0, high=1.0, shape=(1,), dtype=np.float32)  
+        #                                 }) # Action space of the environment
 
-        angle_rad = np.arccos(np.clip(dot_product, -1.0, 1.0)) # Calculate the angle between the car and the next waypoint orientation in rad
-        
-        # angle_deg = np.degrees(angle_rad) # Conversion to degrees
+        # self.observation_space = spaces.Dict({"camera_features": spaces.Box(low=-np.inf, high=np.inf, shape=(self.n_camera_features,), dtype=np.float32), 
+        #                                     "collision_detected": spaces.Discrete(2), 
+        #                                     "distance_to_next_waypoint": spaces.Box(low=0, high=np.inf, shape=(1,), dtype=np.float32), 
+        #                                     "angle_to_next_waypoint": spaces.Box(low=-np.pi, high=np.pi, shape=(1,), dtype=np.float32)  
+        #                                     }) # Observation space of the environment
 
-        return distance, angle_rad
 
-
+# ---------------------- Ego Vehicle -----------------------------
     # Get the ego vehicle and spawn it in the world on the start point
     def get_spawn_ego(self, ego_name):
         self.spawn_points = self.world.get_map().get_spawn_points() # Get all the spawn points in the map
         ego_bp = self.world.get_blueprint_library().find(ego_name) # Get the blueprint of the ego vehicle
-        self.start_point = random.choice(self.spawn_points) # Choose a random spawn point to initiate the ego vehicle
+        self.start_point = random.choice(self.spawn_points) # Choose a random spawn point to initiate the ego vehicle to avoid overfitting
         self.ego_vehicle = self.world.try_spawn_actor(ego_bp, self.start_point) # Spawn the ego vehicle in the world
 
 
+# ---------------------- Route Generation -----------------------------
     # Generate the longest route possible regarding the start_point for the ego vehicle to follow
     def generate_path(self):
         point_a = self.start_point.location # Start the path where the car is at
@@ -107,42 +100,175 @@ class Environment(gym.Env):
                 distance = len(cur_route) # Update the distance
                 self.route = cur_route # Update the route
 
-        # Draw the route in the simulation window (Note it does not get into the camera of the car)
+        # Draw the route in the simulation window (Note: it does not get into the camera of the car)
         for waypoint in self.route:
             self.world.debug.draw_string(waypoint[0].transform.location, '^', draw_shadow=False,
                 color=carla.Color(r=0, g=0, b=255), life_time=600.0,
                 persistent_lines=True)
-            
 
+
+# ---------------------- Sensors -----------------------------
+    
+    def on_collision(self):
+        print("Collision detected")
+        self.collision_occured = True
+    
     # Process the image from the sensor and display it
-    def process_img(self, image, sensor_name):
+    def process_img(self, image):
         i = np.array(image.raw_data)  # Convert the image to a numpy array
         i2 = i.reshape((IM_HEIGHT, IM_WIDTH, 4)) # Reshaping the array to the image size
-        i3 = i2[:, :, :3]  # Remove the alpha (basically, remove the 4th index  of every pixel. Converting RGBA to RGB)
-        cv2.imshow(sensor_name, i3)  # Display the image
+        i3 = i2[:, :, :3]  # Remove the alpha channel
+        normalized_image = i3 / 255.0 # Normalize the image
+        cv2.imshow("SS_CAM", i3)  # Display the image
         cv2.waitKey(1)
-        return i3/255.0  # normalize
-    
+
+        image_tensor = torch.tensor(normalized_image, dtype=torch.float).unsqueeze(0).permute(0, 3, 1, 2) # Convert the image to a tensor
+
+        with torch.no_grad():
+            features = self.encoder(image_tensor) # Get the latent features of the image
+        return features
+
 
     # Get the spawn points of the sensors and attach them to the ego vehicle
-    def get_spawn_sensors(self, rgb_camera, ssc_camera):
-        rgb_bp = self.world.get_blueprint_library().find(rgb_camera) # Get the blueprint of the RGB camera
-        # change the dimensions of the image
-        rgb_bp.set_attribute('image_size_x', f'{IM_WIDTH}')
-        rgb_bp.set_attribute('image_size_y', f'{IM_HEIGHT}')
-        rgb_bp.set_attribute('fov', '110')
+    def get_spawn_sensors(self, sensor_name):
+        sensor_bp = self.world.get_blueprint_library().find(sensor_name) # Get the blueprint of the SS camera
 
-        # Adjust sensor relative to vehicle
-        spawn_point = carla.Transform(carla.Location(x=-5, z=3))
+        if sensor_name == SS_CAMERA:
+            # Change the dimensions of the image
+            sensor_bp.set_attribute('image_size_x', f'{IM_WIDTH}')
+            sensor_bp.set_attribute('image_size_y', f'{IM_HEIGHT}')
+            sensor_bp.set_attribute('fov', '110')
 
-        # spawn the sensor and attach to vehicle.
-        rgb_sensor = self.world.spawn_actor(rgb_bp, spawn_point, attach_to=self.ego_vehicle)
-        self.sensor_list.append(rgb_sensor)
-        rgb_sensor.listen(lambda data: self.process_img(data, 'rgb_camera'))
-        time.sleep(5)
+            # Adjust sensor relative to vehicle
+            spawn_point = carla.Transform(carla.Location(x=-5, z=3))
+
+        else: # If the sensor is a collision sensor
+            spawn_point = carla.Transform(carla.Location(x=0, z=1))
+
+        # Spawn the sensor, attaching them to vehicle.
+        sensor = self.world.spawn_actor(sensor_bp, spawn_point, attach_to=self.ego_vehicle)
+        self.sensor_list.append(sensor)
+        if sensor_name == SS_CAMERA:
+            self.camera = sensor
+        else:
+            self.collision_sensor = sensor
+
+# ------------------------ Observations ---------------------------
+    # Get the observations of the environment
+    def get_obs(self):
+        distance, angle = self.distance_angle_towards_waypoint()
+        camera_features = self.camera.listen(lambda data: self.process_img(data))
+        self.collision_sensor.listen(lambda event: self.on_collision())
+        time.sleep(0.5)
+        return [distance, angle, len(self.route), self.collision_occured, camera_features]
+
+    # Get the distance and angle towards the next waypoint
+    def distance_angle_towards_waypoint(self):
+        if not self.route:
+            return None, None  # Return None if there is no route
+
+        current_position = np.array([self.ego_vehicle.get_location().x, self.ego_vehicle.get_location().y, self.ego_vehicle.get_location().z])
+        next_waypoint_position = np.array([self.route[0][0].transform.location.x, self.route[0][0].transform.location.y, self.route[0][0].transform.location.z])
+        distance = np.linalg.norm(next_waypoint_position - current_position)  # Calculate the distance between the vehicle and the next waypoint
+
+        # Veritfy if the vehicle has passed the waypoint
+        if distance < 0:
+            self.route = self.route[1:]  # Remove the waypoint from the route
+            return self.distance_angle_towards_waypoint()  # Recalculate the distance and angle towards the next waypoint
+        else:
+            # Get the rotation of the vehicle and the next waypoint
+            current_rotation = np.array([self.ego_vehicle.get_transform().rotation.pitch , self.ego_vehicle.get_transform().rotation.yaw , self.ego_vehicle.get_transform().rotation.roll])
+            next_waypoint_rotation = np.array([self.route[0][0].transform.rotation.pitch , self.route[0][0].transform.rotation.yaw , self.route[0][0].transform.rotation.roll])
+
+            # Normalize the vectors
+            current_rotation_normalized = current_rotation / np.linalg.norm(current_rotation)
+            next_waypoint_rotation_normalized = next_waypoint_rotation / np.linalg.norm(next_waypoint_rotation)
+            
+            dot_product = np.dot(current_rotation_normalized, next_waypoint_rotation_normalized) # Calculate the dot product between the vehicle and the next waypoint
+
+            angle_rad = np.arccos(np.clip(dot_product, -1.0, 1.0)) # Calculate the angle between the vehicle and the next waypoint
+            
+            return distance, angle_rad
+
 
 # ---------------------------------------------------
+    # Reset the environment
+    def reset(self, seed=None, options=None):
+        super().reset(seed=seed) # Reset the environment
 
+        if len(self.actor_list) != 0 or len(self.sensor_list) != 0: # Destroy the existing environment
+                    self.client.apply_batch([carla.command.DestroyActor(x) for x in self.sensor_list])
+                    self.client.apply_batch([carla.command.DestroyActor(x) for x in self.actor_list])
+                    self.client.apply_batch([carla.command.DestroyActor(x) for x in self.walker_list])
+                    self.sensor_list.clear()
+                    self.actor_list.clear()
+                    self.walker_list.clear()
+                    self.ego_vehicle = None
+        
+        # Create a new environment
+        self.get_spawn_ego(EGO_NAME)
+        self.create_pedestrians()
+        self.set_other_vehicles()
+        self.generate_path()
+        self.get_spawn_sensors(SS_CAMERA)  
+        self.get_spawn_sensors(COLLISION_SENSOR)  
+
+        # Reset all variables
+        self.timesteps = 0 # Reset the timesteps
+        self.reward = 0 # Reset the reward
+        self.collision_occured = False # Reset the collision flag
+        self.terminated = False # Reset the termination flag
+        observation = self.get_obs()
+
+        return observation
+
+
+# ----------------------  Step and Reward -----------------------------
+    def calculate_reward(self, linear_velocity, distance_to_next_waypoint, angle_toward_next_waypoint, len_route, collision_occured):
+        if collision_occured:
+            self.reward += COLLISION_PENALTY
+            self.terminated = True
+            return
+        
+        elif len_route == 0:
+            self.reward += DESTINATION_REWARD
+            self.terminated = True
+            return
+        
+        elif angle_toward_next_waypoint > THETA:
+            self.reward += ANGLE_PENALTY
+        
+        elif linear_velocity > MAX_SPEED or linear_velocity == 0:
+            self.reward +=  SPEED_PENALTY
+
+        elif distance_to_next_waypoint > WAYPOINT_THRESHOLD:
+            self.reward += WAYPOINT_REWARD
+        
+        else: self.reward += NEUTRAL_REWARD
+
+    def step(self, action):
+        linear_velocity = action["linear_velocity"][0]
+        angular_velocity = action["angular_velocity"][0]
+
+        # Apply the control to the ego vehicle
+        ego_vehicle_control = carla.VehicleControl(throttle=linear_velocity, steer=angular_velocity)
+        self.ego_vehicle.apply_control(ego_vehicle_control)
+
+        # Get the observations
+        observation = self.get_obs()
+        distance_to_next_waypoint = observation[0]
+        angle_toward_next_waypoint = observation[1] 
+        len_route = observation[2]
+        collision_occured = observation[3]
+        camera_features = observation[4]
+
+        self.calculate_reward(linear_velocity, distance_to_next_waypoint, angle_toward_next_waypoint, len_route, collision_occured)
+
+        return observation, self.reward, self.terminated
+
+
+
+# -------------------- Setting the rest of the environment -------------------------------
     # Creating and spawning pedestrians in the world
     def create_pedestrians(self):
         try:
@@ -186,15 +312,12 @@ class Environment(gym.Env):
                 all_actors[i].start() # Start the walker
                 all_actors[i].go_to_location(
                     self.world.get_random_location_from_navigation()) # Set the walker to walk to a random point
-
         except:
             self.client.apply_batch(
                 [carla.command.DestroyActor(x) for x in self.walker_list]) # Destroy the walker actor and controller
 
 
-# ---------------------------------------------------
-
-# Creating and Spawning other vehciles in the world
+    # Creating and Spawning other vehciles in the world
     def set_other_vehicles(self):
         try:
             # NPC vehicles generated and set to autopilot mode
@@ -207,60 +330,6 @@ class Environment(gym.Env):
                 if other_vehicle is not None:
                     other_vehicle.set_autopilot(True) # Set the vehicle to autopilot mode
                     self.actor_list.append(other_vehicle)
-        
         except:
             self.client.apply_batch(
                 [carla.command.DestroyActor(x) for x in self.actor_list]) # Destroy the other vehicles
-
-
-# ---------------------------------------------------
-
-    # Reset the environment
-    def reset(self):
-        try:
-            super().reset() # Reset the environment
-
-            if len(self.actor_list) != 0 or len(self.sensor_list) != 0: # Destroy the existing environment
-                        self.client.apply_batch([carla.command.DestroyActor(x) for x in self.sensor_list])
-                        self.client.apply_batch([carla.command.DestroyActor(x) for x in self.actor_list])
-                        self.client.apply_batch([carla.command.DestroyActor(x) for x in self.walker_list])
-                        self.sensor_list.clear()
-                        self.actor_list.clear()
-                        self.walker_list.clear()
-                        self.ego_vehicle = None
-            
-            # Create a new environment
-            self.get_spawn_ego(EGO_NAME)
-            self.create_pedestrians()
-            self.set_other_vehicles()
-            self.generate_path()
-            self.get_spawn_sensors(RGB_CAMERA, SSC_CAMERA)  
-
-            # Reset all the variables
-            self.timesteps = 0 # Reset the timesteps
-
-            observation = self._get_obs()
-            #info = self._get_info()
-            return observation #, info
-
-        except: 
-            print("Error in reseting the environment")
-
-
-# ---------------------------------------------------
-
-    # Step the environment
-    def step(self, action):
-        # An episode is done if the agent has reached the end of the route
-        current_position = np.array([self.ego_vehicle.get_location().x, self.ego_vehicle.get_location().y, self.ego_vehicle.get_location().z])
-        last_waypoint_position = np.array([self.route[len(self.route-1)][0].transform.location.x, self.route[len(self.route-1)][0].transform.location.y, self.route[len(self.route-1)][0].transform.location.z])        
-        terminated = np.array_equal(current_position, last_waypoint_position)
-
-        # Reward
-        reward = 
-
-
-        observation = self._get_obs()
-        #info = self._get_info()
-
-        return observation, reward, terminated #, info

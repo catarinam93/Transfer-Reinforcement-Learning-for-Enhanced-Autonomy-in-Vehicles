@@ -1,10 +1,9 @@
-# from carla import VehicleLightState as vls
-# from numpy import random
-# from stable_baselines3 import PPO
+from encoder import VariationalEncoder
 import argparse
-from connection import Connection, logging, carla
-from settings import EGO_NAME, RGB_CAMERA, SSC_CAMERA
+from connection import Connection, logging
+from settings import *
 from environment import Environment
+from ppo import *
 
 
 def parse_args():
@@ -24,7 +23,7 @@ def parse_args():
     argparser.add_argument(
         '--town', 
         type=str, 
-        default="Town10HD", 
+        default="Town01", 
         help='Town of the simulation (default: Town10HD)')
     argparser.add_argument(
         '--seedw',
@@ -39,7 +38,6 @@ def parse_args():
 
 
     args = argparser.parse_args()
-
     logging.basicConfig(format='%(levelname)s: %(message)s', level=logging.INFO)
     
     return args
@@ -56,61 +54,32 @@ def main():
         logging.error("Connection has been refused by the server.")
         ConnectionRefusedError
 
-    # ----------------------------------------------- Spawn and Create Route ---------------------------------------------- 
-    env = Environment(client, world, args)
+    # ----------------------------------------------- Environment and VAE ---------------------------------------------- 
+    encoder = VariationalEncoder(LATENT_DIM) 
+    encoder.load()
+
+    env = Environment(client, world, args, encoder)
     env.create_pedestrians()
     env.set_other_vehicles()
     env.get_spawn_ego(EGO_NAME)
+    print("Car Spawned")
     env.generate_path()
-    env.get_spawn_sensors(RGB_CAMERA, SSC_CAMERA)   
-    # env.create_pedestrians()
-    # spawn_points = world.get_map().get_spawn_points()
-    # spawn_point = spawn_points[247] # A spawn point at the entrance of the roundabout - see image on the report
-    # ''' Sugestion of ending points
-    # - 221 -> first exit
-    # - 85 -> second exit
-    # - 212 -> third exit
-    # - 250 -> fourth exit
-    # '''
-    # # Draw the spawn point locations as numbers in the map with a life time of 10 seconds
-    # for i, spawn_point in enumerate(spawn_points):
-    #     world.debug.draw_string(spawn_point.location, str(i), life_time=10)
-    #     print("i: ", i, "spawn_point: ", spawn_point)
-    
-    
-    # # ---------------------------------------------- Vehicle ---------------------------------------------- 
-    
-    # # ego_bp = random.choice(world.get_blueprint_library().filter('*vehicle*')) # If I wanted a random vehicle 
-    # ego_bp = world.get_blueprint_library().find('vehicle.mini.cooper_s_2021')
-    # ego_bp.set_attribute('role_name', 'hero')
-    # ego_vehicle = world.spawn_actor(ego_bp, spawn_point) # The veichle is spawn at the spawn 
+    print("Path Generated")
+    env.get_spawn_sensors(SS_CAMERA)  
+    env.get_spawn_sensors(COLLISION_SENSOR) 
+    print("Sensors Spawned") 
 
+    # ----------------------------------------------- PPO Algorithm ----------------------------------------------
+    ppo = PPO(policy="MlpPolicy", env=env, verbose=1) # Instantiate PPO algorithm
+    ppo.learn(total_timesteps=100) # Train the PPO algorithm
 
-    # # ---------------------------------------------- Sensors ---------------------------------------------- 
-    # ss_bp = world.get_blueprint_library().find('sensor.camera.semantic_segmentation') # A camera with Semantic Segmentation which gives us 12 different classifications, e.g., lane marker, sidewalk, road, pedestrian, etc.
-    # co_bp = world.get_blueprint_library().find('sensor.other.collision') # A collision sensor
-    # li_bp = world.get_blueprint_library().find('sensor.other.lane_invasion') # A lane invasion sensor
-
-    # transform = carla.Transform(carla.Location(x=0.8, z=1.7)) # How do I know the proper values to insert here?
-
-    # # Spawn the sensors on the ego vehicle
-    # ss_sensor = world.spawn_actor(ss_bp, transform, attach_to=ego_vehicle)
-    # co_sensor = world.spawn_actor(co_bp, transform, attach_to=ego_vehicle)
-    # li = world.spawn_actor(li_bp, transform, attach_to=ego_vehicle)
-
-
-    # # ---------------------------------------------- Destruction of the vehicle ---------------------------------------------- 
-    # # When a final spawn point is reached - destroy the vehicle
-    # #     print('\ndestroying the vehicle')
-    # #     client.apply_batch([carla.command.DestroyActor(ego_vehicle)])
-    # #     time.sleep(0.5)
+    # ppo.save("trained_ppo_model") # Save the trained model
+    # ppo.evaluate(env, n_eval_episodes=10) # Evaluate the trained model
 
 if __name__ == '__main__':
-
     try:
         main()
     except KeyboardInterrupt:
         pass
     finally:
         print('\ndone.')
-

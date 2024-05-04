@@ -6,16 +6,28 @@ Easily modifiable paramters with the quick access in this settings.py file \
 
 Names of the parameters are self-explanatory therefore elimating the use of further comments.
 '''
+import numpy as np
 
 EGO_NAME = 'vehicle.mini.cooper_s_2021'
-EPISODE_LENGTH = 120
+
 NUMBER_OF_VEHICLES = 30
 NUMBER_OF_PEDESTRIAN = 10
-CONTINUOUS_ACTION = True
-VISUAL_DISPLAY = True
-IM_WIDTH = 640
-IM_HEIGHT = 480
 
+LATENT_DIM = 95 
+IM_WIDTH = 160
+IM_HEIGHT = 80
 
-RGB_CAMERA = 'sensor.camera.rgb'
-SSC_CAMERA = 'sensor.camera.semantic_segmentation'
+SS_CAMERA = 'sensor.camera.semantic_segmentation'
+COLLISION_SENSOR = 'sensor.other.collision'
+
+COLLISION_PENALTY = -100.0  # High penalty for collisions
+DESTINATION_REWARD = 1000.0  # High reward upon reaching the destination
+ANGLE_PENALTY = -10.0  # Moderate penalty for large angles relative to the next waypoint
+SPEED_PENALTY = -10.0  # Moderate penalty for very high or zero speeds
+WAYPOINT_REWARD = 10.0  # Moderate reward for approaching a waypoint
+NEUTRAL_REWARD = 0.0  # Neutral reward for other states
+
+THETA = np.pi / 4  # Angle threshold for angle penalty (45 degrees)
+MAX_SPEED = 13.89  # 50 km/h in m/s (approximate value)
+# The average distance between waypoints is 0.9792900460064606, therefore the threshold is set to the average distance * 0.1 ~= 0.1
+WAYPOINT_THRESHOLD = 0.1  # Proximity distance to consider waypoint reached (approximate value)
