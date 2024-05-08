@@ -25,7 +25,8 @@ class Environment(gym.Env):
         self.collision_occured = False # Collision flag
 
         self.encoder = encoder # Encoder of the environment
-        self.n_camera_features = 100 # Number of camera features
+        self.n_camera_features = 97 # Number of camera features
+        self.features_accumulator = [] # Variable to store the camera features
 
         self.actor_list = []
         self.sensor_list = []
@@ -34,8 +35,10 @@ class Environment(gym.Env):
         self.collision_sensor = None
 
         # Limits for the action space
-        self.linear_velocity_low = -1.0
+        self.linear_velocity_low = 0.0
         self.linear_velocity_high = 1.0
+        self.break_low = 0.0
+        self.break_high = 1.0
         self.angular_velocity_low = -1.0
         self.angular_velocity_high = 1.0
 
@@ -48,15 +51,15 @@ class Environment(gym.Env):
         self.angle_high = np.pi
 
         # Size of the observation space
-        self.camera_features_size = 100
+        self.camera_features_size = 97
         self.distance_size = 1
         self.angle_size = 1
 
         # Total size of the observation space
         self.total_observation_size = self.camera_features_size + 1 + 1 + 1  # Camera features + distance + angle + len_route
 
-        self.action_space = spaces.Box(low=np.array([self.linear_velocity_low, self.angular_velocity_low]), 
-                                        high=np.array([self.linear_velocity_high, self.angular_velocity_high]), 
+        self.action_space = spaces.Box(low=np.array([self.linear_velocity_low, self.angular_velocity_low, self.break_low]), 
+                                        high=np.array([self.linear_velocity_high, self.angular_velocity_high, self.break_high]), 
                                         dtype=np.float32)
 
         self.observation_space = spaces.Box(low=np.array([self.camera_features_low] * self.camera_features_size + [self.distance_low] + [self.angle_low]), 
@@ -115,18 +118,20 @@ class Environment(gym.Env):
     
     # Process the image from the sensor and display it
     def process_img(self, image):
-        i = np.array(image.raw_data)  # Convert the image to a numpy array
-        i2 = i.reshape((IM_HEIGHT, IM_WIDTH, 4)) # Reshaping the array to the image size
-        i3 = i2[:, :, :3]  # Remove the alpha channel
-        normalized_image = i3 / 255.0 # Normalize the image
-        cv2.imshow("SS_CAM", i3)  # Display the image
-        cv2.waitKey(1)
+            i = np.array(image.raw_data)  # Convert the image to a numpy array
+            i2 = i.reshape((IM_HEIGHT, IM_WIDTH, 4)) # Reshaping the array to the image size
+            i3 = i2[:, :, :3]  # Remove the alpha channel
+            normalized_image = i3 / 255.0 # Normalize the image
+            cv2.imshow("SS_CAM", i3)  # Display the image
+            cv2.waitKey(1)
 
-        image_tensor = torch.tensor(normalized_image, dtype=torch.float).unsqueeze(0).permute(0, 3, 1, 2) # Convert the image to a tensor
+            image_tensor = torch.tensor(normalized_image, dtype=torch.float).unsqueeze(0).permute(0, 3, 1, 2) # Convert the image to a tensor
 
-        with torch.no_grad():
-            features = self.encoder(image_tensor) # Get the latent features of the image
-        return features
+            with torch.no_grad():
+                features = self.encoder(image_tensor) # Get the latent features of the image
+
+            self.features_accumulator.append(features) # Append the features to the accumulator
+            return None
 
 
     # Get the spawn points of the sensors and attach them to the ego vehicle
@@ -157,10 +162,18 @@ class Environment(gym.Env):
     # Get the observations of the environment
     def get_obs(self):
         distance, angle = self.distance_angle_towards_waypoint()
-        camera_features = self.camera.listen(lambda data: self.process_img(data))
+        self.camera.listen(lambda data: self.process_img(data))
         self.collision_sensor.listen(lambda event: self.on_collision())
         time.sleep(0.5)
-        return [distance, angle, len(self.route), self.collision_occured, camera_features]
+        if self.features_accumulator:
+            average_features = sum(self.features_accumulator) / len(self.features_accumulator) # Get the average of the features
+            self.features_accumulator = [] # Reset the accumulator
+
+        # Concatenate and flatten all observation components into a single array
+        observation = np.concatenate([np.array([distance, angle, len(self.route), self.collision_occured]), average_features.flatten()])
+
+        return observation
+
 
     # Get the distance and angle towards the next waypoint
     def distance_angle_towards_waypoint(self):
@@ -171,7 +184,7 @@ class Environment(gym.Env):
         next_waypoint_position = np.array([self.route[0][0].transform.location.x, self.route[0][0].transform.location.y, self.route[0][0].transform.location.z])
         distance = np.linalg.norm(next_waypoint_position - current_position)  # Calculate the distance between the vehicle and the next waypoint
 
-        # Veritfy if the vehicle has passed the waypoint
+        # Verify if the vehicle has passed the waypoint
         if distance < 0:
             self.route = self.route[1:]  # Remove the waypoint from the route
             return self.distance_angle_towards_waypoint()  # Recalculate the distance and angle towards the next waypoint
@@ -180,15 +193,25 @@ class Environment(gym.Env):
             current_rotation = np.array([self.ego_vehicle.get_transform().rotation.pitch , self.ego_vehicle.get_transform().rotation.yaw , self.ego_vehicle.get_transform().rotation.roll])
             next_waypoint_rotation = np.array([self.route[0][0].transform.rotation.pitch , self.route[0][0].transform.rotation.yaw , self.route[0][0].transform.rotation.roll])
 
-            # Normalize the vectors
-            current_rotation_normalized = current_rotation / np.linalg.norm(current_rotation)
-            next_waypoint_rotation_normalized = next_waypoint_rotation / np.linalg.norm(next_waypoint_rotation)
-            
+            # Compute the norms of the vectors
+            current_rotation_norm = np.linalg.norm(current_rotation)
+            next_waypoint_rotation_norm = np.linalg.norm(next_waypoint_rotation)
+
+            # Add a check for zero or near-zero norm values to avoid division by zero
+            if current_rotation_norm > 0 and next_waypoint_rotation_norm > 0:
+                current_rotation_normalized = current_rotation / current_rotation_norm
+                next_waypoint_rotation_normalized = next_waypoint_rotation / next_waypoint_rotation_norm
+            else:
+                # Handle the case when the norm is zero or near-zero
+                current_rotation_normalized = np.zeros_like(current_rotation)
+                next_waypoint_rotation_normalized = np.zeros_like(next_waypoint_rotation)
+
             dot_product = np.dot(current_rotation_normalized, next_waypoint_rotation_normalized) # Calculate the dot product between the vehicle and the next waypoint
 
             angle_rad = np.arccos(np.clip(dot_product, -1.0, 1.0)) # Calculate the angle between the vehicle and the next waypoint
             
             return distance, angle_rad
+
 
 
 # ---------------------------------------------------
@@ -220,7 +243,7 @@ class Environment(gym.Env):
         self.terminated = False # Reset the termination flag
         observation = self.get_obs()
 
-        return observation
+        return observation, None
 
 
 # ----------------------  Step and Reward -----------------------------
@@ -247,11 +270,13 @@ class Environment(gym.Env):
         else: self.reward += NEUTRAL_REWARD
 
     def step(self, action):
-        linear_velocity = action["linear_velocity"][0]
-        angular_velocity = action["angular_velocity"][0]
-
+        print(action)
+        linear_velocity = action[0]  
+        angular_velocity = action[1] 
+        break_value = action[2]
+        print(type(linear_velocity), type(angular_velocity)) # <class 'numpy.float32'>
         # Apply the control to the ego vehicle
-        ego_vehicle_control = carla.VehicleControl(throttle=linear_velocity, steer=angular_velocity)
+        ego_vehicle_control = carla.VehicleControl(throttle=linear_velocity, steer = angular_velocity, brake = break_value) 
         self.ego_vehicle.apply_control(ego_vehicle_control)
 
         # Get the observations
@@ -260,7 +285,6 @@ class Environment(gym.Env):
         angle_toward_next_waypoint = observation[1] 
         len_route = observation[2]
         collision_occured = observation[3]
-        camera_features = observation[4]
 
         self.calculate_reward(linear_velocity, distance_to_next_waypoint, angle_toward_next_waypoint, len_route, collision_occured)
 

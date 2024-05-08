@@ -1,3 +1,5 @@
+''' NOT USED YET :)'''
+
 from settings import *
 import carla
 import numpy as np
@@ -10,7 +12,7 @@ class Camera():
         self.front_camera = list()
         world = self.parent.get_world()
         self.sensor = self._set_camera_sensor(world)
-        self.sensor.listen(lambda data: self.process_img(data, 'rgb_camera'))
+        self.sensor.listen(lambda data: self.process_img(data, 'ssc_camera'))
 
 
     # Get the spawn points of the sensors and attach them to the ego vehicle
