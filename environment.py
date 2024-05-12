@@ -270,13 +270,11 @@ class Environment(gym.Env):
         else: self.reward += NEUTRAL_REWARD
 
     def step(self, action):
-        print(action)
         linear_velocity = action[0]  
         angular_velocity = action[1] 
         break_value = action[2]
-        print(type(linear_velocity), type(angular_velocity)) # <class 'numpy.float32'>
         # Apply the control to the ego vehicle
-        ego_vehicle_control = carla.VehicleControl(throttle=linear_velocity, steer = angular_velocity, brake = break_value) 
+        ego_vehicle_control = carla.VehicleControl(throttle=float(linear_velocity), steer = float(angular_velocity), brake = float(break_value))
         self.ego_vehicle.apply_control(ego_vehicle_control)
 
         # Get the observations
