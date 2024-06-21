@@ -22,7 +22,7 @@ class Environment(gym.Env):
         self.start_point = None # Start point of the ego vehicle
         self.spawn_points = None # Spawn points of the ego vehicle
         self.route = None # Route of the ego vehicle
-        self.collision_occured = False # Collision flag
+        self.collision_occured = 0 # Collision flag
 
         self.encoder = encoder # Encoder of the environment
         self.n_camera_features = 97 # Number of camera features
@@ -49,33 +49,28 @@ class Environment(gym.Env):
         self.distance_high = np.inf
         self.angle_low = -np.pi
         self.angle_high = np.pi
+        self.len_route_low = 0
+        self.len_route_high = np.inf
+        self.collision_occured_low = 0
+        self.collision_occured_high = 1
 
         # Size of the observation space
-        self.camera_features_size = 97
+        self.camera_features_size = 95
         self.distance_size = 1
         self.angle_size = 1
+        self.len_route_size = 1
+        self.collision_occured_size = 1
 
         # Total size of the observation space
-        self.total_observation_size = self.camera_features_size + 1 + 1 + 1  # Camera features + distance + angle + len_route
+        self.total_observation_size = self.camera_features_size + self.distance_size + self.angle_size + self.len_route_size + self.collision_occured_size
 
         self.action_space = spaces.Box(low=np.array([self.linear_velocity_low, self.angular_velocity_low, self.break_low]), 
                                         high=np.array([self.linear_velocity_high, self.angular_velocity_high, self.break_high]), 
-                                        dtype=np.float32)
+                                        dtype=np.float64)
 
-        self.observation_space = spaces.Box(low=np.array([self.camera_features_low] * self.camera_features_size + [self.distance_low] + [self.angle_low]), 
-                                            high=np.array([self.camera_features_high] * self.camera_features_size + [self.distance_high] + [self.angle_high]), 
-                                            dtype=np.float32)
-        
-        # Version with Dict (action space dict is not supported by PPO algorithm)
-        # self.action_space = spaces.Dict({"linear_velocity": spaces.Box(low=-1.0, high=1.0, shape=(1,), dtype=np.float32),  
-        #                                 "angular_velocity": spaces.Box(low=-1.0, high=1.0, shape=(1,), dtype=np.float32)  
-        #                                 }) # Action space of the environment
-
-        # self.observation_space = spaces.Dict({"camera_features": spaces.Box(low=-np.inf, high=np.inf, shape=(self.n_camera_features,), dtype=np.float32), 
-        #                                     "collision_detected": spaces.Discrete(2), 
-        #                                     "distance_to_next_waypoint": spaces.Box(low=0, high=np.inf, shape=(1,), dtype=np.float32), 
-        #                                     "angle_to_next_waypoint": spaces.Box(low=-np.pi, high=np.pi, shape=(1,), dtype=np.float32)  
-        #                                     }) # Observation space of the environment
+        self.observation_space = spaces.Box(low=np.array([self.camera_features_low] * self.camera_features_size + [self.distance_low] + [self.angle_low] + [self.len_route_low] + [self.collision_occured_low]), 
+                                            high=np.array([self.camera_features_high] * self.camera_features_size + [self.distance_high] + [self.angle_high] + [self.len_route_high] + [self.collision_occured_high]), 
+                                            dtype=np.float64)
 
 
 # ---------------------- Ego Vehicle -----------------------------
@@ -114,30 +109,39 @@ class Environment(gym.Env):
     
     def on_collision(self):
         print("Collision detected")
-        self.collision_occured = True
+        self.collision_occured = 1
     
     # Process the image from the sensor and display it
     def process_img(self, image):
+        try:
             i = np.array(image.raw_data)  # Convert the image to a numpy array
-            i2 = i.reshape((IM_HEIGHT, IM_WIDTH, 4)) # Reshaping the array to the image size
+            i2 = i.reshape((IM_HEIGHT, IM_WIDTH, 4))  # Reshaping the array to the image size
             i3 = i2[:, :, :3]  # Remove the alpha channel
-            normalized_image = i3 / 255.0 # Normalize the image
+            normalized_image = i3 / 255.0  # Normalize the image
             cv2.imshow("SS_CAM", i3)  # Display the image
             cv2.waitKey(1)
 
-            image_tensor = torch.tensor(normalized_image, dtype=torch.float).unsqueeze(0).permute(0, 3, 1, 2) # Convert the image to a tensor
+            image_tensor = torch.tensor(normalized_image, dtype=torch.float).unsqueeze(0).permute(0, 3, 1, 2)  # Convert the image to a tensor
+
+            # Check if CUDA is available and move encoder and tensor to the appropriate device
+            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            self.encoder.to(device)
+            image_tensor = image_tensor.to(device)
 
             with torch.no_grad():
-                features = self.encoder(image_tensor) # Get the latent features of the image
+                features = self.encoder(image_tensor)  # Get the latent features of the image
 
-            self.features_accumulator.append(features) # Append the features to the accumulator
-            return None
+            self.features_accumulator.append(features)  # Append the features to the accumulator
+
+        except Exception as e:
+            print(f"Error in process_img: {e}")
+        return None
 
 
     # Get the spawn points of the sensors and attach them to the ego vehicle
     def get_spawn_sensors(self, sensor_name):
         sensor_bp = self.world.get_blueprint_library().find(sensor_name) # Get the blueprint of the SS camera
-
+        
         if sensor_name == SS_CAMERA:
             # Change the dimensions of the image
             sensor_bp.set_attribute('image_size_x', f'{IM_WIDTH}')
@@ -164,14 +168,22 @@ class Environment(gym.Env):
         distance, angle = self.distance_angle_towards_waypoint()
         self.camera.listen(lambda data: self.process_img(data))
         self.collision_sensor.listen(lambda event: self.on_collision())
-        time.sleep(0.5)
+        
+
+        while len(self.features_accumulator) == 0:
+            time.sleep(0.05)
+
         if self.features_accumulator:
             average_features = sum(self.features_accumulator) / len(self.features_accumulator) # Get the average of the features
             self.features_accumulator = [] # Reset the accumulator
-
+        # print("camera features: ", average_features)
+        # print("distance: ", distance)
+        # print("angle: ", angle)
+        # print("len route: ", len(self.route))
+        # print("collision: ", self.collision_occured)
         # Concatenate and flatten all observation components into a single array
-        observation = np.concatenate([np.array([distance, angle, len(self.route), self.collision_occured]), average_features.flatten()])
-
+        observation = np.concatenate([average_features.cpu().numpy().flatten(), np.array([distance, angle, len(self.route), self.collision_occured])])
+        
         return observation
 
 
@@ -234,16 +246,16 @@ class Environment(gym.Env):
         self.set_other_vehicles()
         self.generate_path()
         self.get_spawn_sensors(SS_CAMERA)  
-        self.get_spawn_sensors(COLLISION_SENSOR)  
+        # self.get_spawn_sensors(COLLISION_SENSOR)  
 
         # Reset all variables
         self.timesteps = 0 # Reset the timesteps
         self.reward = 0 # Reset the reward
-        self.collision_occured = False # Reset the collision flag
+        # self.collision_occured = False # Reset the collision flag
         self.terminated = False # Reset the termination flag
         observation = self.get_obs()
-
-        return observation, None
+        print("Reset observation: ", len(observation))
+        return observation, {}
 
 
 # ----------------------  Step and Reward -----------------------------
