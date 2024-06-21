@@ -246,15 +246,15 @@ class Environment(gym.Env):
         self.set_other_vehicles()
         self.generate_path()
         self.get_spawn_sensors(SS_CAMERA)  
-        # self.get_spawn_sensors(COLLISION_SENSOR)  
+        self.get_spawn_sensors(COLLISION_SENSOR)  
 
         # Reset all variables
         self.timesteps = 0 # Reset the timesteps
         self.reward = 0 # Reset the reward
-        # self.collision_occured = False # Reset the collision flag
+        self.collision_occured = 0 # Reset the collision flag
         self.terminated = False # Reset the termination flag
         observation = self.get_obs()
-        print("Reset observation: ", len(observation))
+
         return observation, {}
 
 
