@@ -239,6 +239,8 @@ class Environment(gym.Env):
                     self.actor_list.clear()
                     self.walker_list.clear()
                     self.ego_vehicle = None
+                    self.camera = None
+                    self.collision_sensor = None
         
         # Create a new environment
         self.get_spawn_ego(EGO_NAME)
@@ -288,17 +290,17 @@ class Environment(gym.Env):
         # Apply the control to the ego vehicle
         ego_vehicle_control = carla.VehicleControl(throttle=float(linear_velocity), steer = float(angular_velocity), brake = float(break_value))
         self.ego_vehicle.apply_control(ego_vehicle_control)
-
+  
         # Get the observations
         observation = self.get_obs()
-        distance_to_next_waypoint = observation[0]
-        angle_toward_next_waypoint = observation[1] 
-        len_route = observation[2]
-        collision_occured = observation[3]
+        distance_to_next_waypoint = observation[self.camera_features_size]
+        angle_toward_next_waypoint = observation[self.camera_features_size + 1]
+        len_route = observation[self.camera_features_size + 2]
+        collision_occured = observation[self.camera_features_size + 3]
 
         self.calculate_reward(linear_velocity, distance_to_next_waypoint, angle_toward_next_waypoint, len_route, collision_occured)
-
-        return observation, self.reward, self.terminated
+        
+        return observation, self.reward, self.terminated, False, {}  # Return the observation, reward, terminated flag, truncated flag, and info dictionary
 
 
 
