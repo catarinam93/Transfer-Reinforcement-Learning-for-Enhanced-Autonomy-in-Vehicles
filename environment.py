@@ -8,6 +8,7 @@ from gymnasium import spaces
 from settings import *
 import sys
 import torch
+from collections import deque
 
 sys.path.append('C:\\Users\\Caty\\Downloads\\CARLA_0.9.15\\WindowsNoEditor\\PythonAPI\\carla')
 from agents.navigation.global_route_planner import GlobalRoutePlanner
@@ -26,7 +27,7 @@ class Environment(gym.Env):
 
         self.encoder = encoder # Encoder of the environment
         self.n_camera_features = 97 # Number of camera features
-        self.features_accumulator = [] # Variable to store the camera features
+        self.features_accumulator = deque(maxlen=5) # Buffer to store the camera features
 
         self.actor_list = []
         self.sensor_list = []
@@ -106,7 +107,6 @@ class Environment(gym.Env):
 
 
 # ---------------------- Sensors -----------------------------
-    
     def on_collision(self):
         print("Collision detected")
         self.collision_occured = 1
@@ -159,28 +159,23 @@ class Environment(gym.Env):
         self.sensor_list.append(sensor)
         if sensor_name == SS_CAMERA:
             self.camera = sensor
+            self.camera.listen(lambda data: self.process_img(data))  # Set up the listener here
         else:
             self.collision_sensor = sensor
+            self.collision_sensor.listen(lambda event: self.on_collision())  # Set up the listener here
+
 
 # ------------------------ Observations ---------------------------
     # Get the observations of the environment
     def get_obs(self):
         distance, angle = self.distance_angle_towards_waypoint()
-        self.camera.listen(lambda data: self.process_img(data))
-        self.collision_sensor.listen(lambda event: self.on_collision())
         
-
         while len(self.features_accumulator) == 0:
             time.sleep(0.05)
 
         if self.features_accumulator:
             average_features = sum(self.features_accumulator) / len(self.features_accumulator) # Get the average of the features
-            self.features_accumulator = [] # Reset the accumulator
-        # print("camera features: ", average_features)
-        # print("distance: ", distance)
-        # print("angle: ", angle)
-        # print("len route: ", len(self.route))
-        # print("collision: ", self.collision_occured)
+
         # Concatenate and flatten all observation components into a single array
         observation = np.concatenate([average_features.cpu().numpy().flatten(), np.array([distance, angle, len(self.route), self.collision_occured])])
         
@@ -231,17 +226,50 @@ class Environment(gym.Env):
     def reset(self, seed=None, options=None):
         super().reset(seed=seed) # Reset the environment
 
-        if len(self.actor_list) != 0 or len(self.sensor_list) != 0: # Destroy the existing environment
-                    self.client.apply_batch([carla.command.DestroyActor(x) for x in self.sensor_list])
-                    self.client.apply_batch([carla.command.DestroyActor(x) for x in self.actor_list])
-                    self.client.apply_batch([carla.command.DestroyActor(x) for x in self.walker_list])
-                    self.sensor_list.clear()
-                    self.actor_list.clear()
-                    self.walker_list.clear()
-                    self.ego_vehicle = None
-                    self.camera = None
-                    self.collision_sensor = None
-        
+        # Log the initial state
+        print("Resetting environment...")
+
+        # Destroy the existing environment
+        try:
+            if self.sensor_list:
+                self.client.apply_batch([carla.command.DestroyActor(x) for x in self.sensor_list])
+                print(f"Destroyed {len(self.sensor_list)} sensors.")
+            else:
+                print("No sensors to destroy.")
+
+            if self.actor_list:
+                self.client.apply_batch([carla.command.DestroyActor(x) for x in self.actor_list])
+                print(f"Destroyed {len(self.actor_list)} actors.")   
+            else:
+                print("No actors to destroy.")
+
+            if self.walker_list:
+                self.client.apply_batch([carla.command.DestroyActor(x) for x in range(1, len(self.walker_list), 2)])
+                print(f"Destroyed {len(self.walker_list)} walkers.")
+            else:
+                print("No walkers to destroy.")
+            
+            time.sleep(0.5) # Wait for the environment to be destroyed
+
+            # Verify destruction
+            all_actors = self.world.get_actors()
+            remaining_sensors = [actor.id for actor in all_actors if actor.id in self.sensor_list]
+            remaining_actors = [actor.id for actor in all_actors if actor.id in self.actor_list]
+            remaining_walkers = [actor.id for actor in all_actors if actor.id in self.walker_list]
+           
+            if not remaining_sensors and not remaining_actors and not remaining_walkers:
+                print("All was destroyed successfully.")
+
+            self.sensor_list.clear()
+            self.actor_list.clear()
+            self.walker_list.clear()
+            self.ego_vehicle = None
+            self.camera = None
+            self.collision_sensor = None
+
+        except Exception as e:
+            print(f"Error during environment reset: {e}")
+
         # Create a new environment
         self.get_spawn_ego(EGO_NAME)
         self.create_pedestrians()
@@ -257,6 +285,7 @@ class Environment(gym.Env):
         self.terminated = False # Reset the termination flag
         observation = self.get_obs()
 
+        print("Environment reset complete.")
         return observation, {}
 
 
@@ -287,21 +316,25 @@ class Environment(gym.Env):
         linear_velocity = action[0]  
         angular_velocity = action[1] 
         break_value = action[2]
+        
         # Apply the control to the ego vehicle
         ego_vehicle_control = carla.VehicleControl(throttle=float(linear_velocity), steer = float(angular_velocity), brake = float(break_value))
         self.ego_vehicle.apply_control(ego_vehicle_control)
-  
+        
+        # Wait for some time to allow the vehicle to move
+        time.sleep(0.5)
+        
         # Get the observations
         observation = self.get_obs()
+        # observation = np.zeros(self.total_observation_size)
         distance_to_next_waypoint = observation[self.camera_features_size]
         angle_toward_next_waypoint = observation[self.camera_features_size + 1]
         len_route = observation[self.camera_features_size + 2]
         collision_occured = observation[self.camera_features_size + 3]
 
         self.calculate_reward(linear_velocity, distance_to_next_waypoint, angle_toward_next_waypoint, len_route, collision_occured)
-        
+        print("reward: ", self.reward)
         return observation, self.reward, self.terminated, False, {}  # Return the observation, reward, terminated flag, truncated flag, and info dictionary
-
 
 
 # -------------------- Setting the rest of the environment -------------------------------
@@ -310,7 +343,7 @@ class Environment(gym.Env):
         try:
             # Get the available spawn points in the world
             walker_spawn_points = [] 
-            for i in range(NUMBER_OF_PEDESTRIAN):
+            for i in range(NUMBER_OF_PEDESTRIAN + 1):
                 spawn_point_ = carla.Transform() # Create a spawn point
                 loc = self.world.get_random_location_from_navigation() # Get a random location from the navigation
                 if (loc != None):
@@ -348,6 +381,7 @@ class Environment(gym.Env):
                 all_actors[i].start() # Start the walker
                 all_actors[i].go_to_location(
                     self.world.get_random_location_from_navigation()) # Set the walker to walk to a random point
+           
         except:
             self.client.apply_batch(
                 [carla.command.DestroyActor(x) for x in self.walker_list]) # Destroy the walker actor and controller
@@ -357,7 +391,7 @@ class Environment(gym.Env):
     def set_other_vehicles(self):
         try:
             # NPC vehicles generated and set to autopilot mode
-            for _ in range(0, NUMBER_OF_VEHICLES):
+            for _ in range(0, NUMBER_OF_VEHICLES+1):
                 spawn_point = random.choice(self.world.get_map().get_spawn_points()) # Get a random spawn point
                 bp_vehicle = random.choice(self.world.get_blueprint_library().filter('vehicle')) # Get the blueprint of the vehicle
                 other_vehicle = self.world.try_spawn_actor(

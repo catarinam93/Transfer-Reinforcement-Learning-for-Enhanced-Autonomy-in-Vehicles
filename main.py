@@ -5,7 +5,6 @@ from settings import *
 from environment import Environment
 from ppo import *
 from stable_baselines3 import PPO
-# import traceback
 import gymnasium as gym
 import os
 
@@ -66,18 +65,6 @@ def main():
     gym.register(id='Carla_Env', entry_point=lambda: Environment(client, world, args, encoder))
     env = gym.make('Carla_Env')
 
-    # env = Environment(client, world, args, encoder)
- 
-    env.create_pedestrians()
-    env.set_other_vehicles()
-    env.get_spawn_ego(EGO_NAME)
-    print("Car Spawned")
-    env.generate_path()
-    print("Path Generated")
-    env.get_spawn_sensors(SS_CAMERA)  
-    env.get_spawn_sensors(COLLISION_SENSOR) 
-    print("Sensors Spawned") 
-
     # ----------------------------------------------- PPO Algorithm ----------------------------------------------
     # Define directories for saving models and logging
     models_dir = "models/PPO"
@@ -96,6 +83,7 @@ def main():
     model = PPO("MlpPolicy", env, verbose=1, tensorboard_log=logdir)
     print("Model Created")
     for i in range(iters, 5):
+        print("================================ Iteration", i, " ================================")
         # Check if there are previously trained models
         model_path = f"{models_dir}/{i}.zip"
         if os.path.exists(model_path):
@@ -107,6 +95,7 @@ def main():
         # Save the model after each iteration
         print(f"Saving the model to {models_dir}/{(i + 1)}")
         model.save(f"{models_dir}/{(i + 1)}")
+
 if __name__ == '__main__':
     try:
         main()
