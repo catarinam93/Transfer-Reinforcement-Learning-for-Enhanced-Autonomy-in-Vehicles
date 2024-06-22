@@ -19,6 +19,7 @@ IM_HEIGHT = 80
 
 SS_CAMERA = 'sensor.camera.semantic_segmentation'
 COLLISION_SENSOR = 'sensor.other.collision'
+RGB_CAMERA = 'sensor.camera.rgb'
 
 COLLISION_PENALTY = -100.0  # High penalty for collisions
 DESTINATION_REWARD = 1000.0  # High reward upon reaching the destination

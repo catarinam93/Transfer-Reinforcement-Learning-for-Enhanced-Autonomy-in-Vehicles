@@ -111,14 +111,23 @@ class Environment(gym.Env):
         print("Collision detected")
         self.collision_occured = 1
     
-    # Process the image from the sensor and display it
+    # Process the image from the SSC and Collision sensors and display it
     def process_img(self, image):
         try:
             i = np.array(image.raw_data)  # Convert the image to a numpy array
             i2 = i.reshape((IM_HEIGHT, IM_WIDTH, 4))  # Reshaping the array to the image size
             i3 = i2[:, :, :3]  # Remove the alpha channel
             normalized_image = i3 / 255.0  # Normalize the image
-            cv2.imshow("SS_CAM", i3)  # Display the image
+
+            window_name = "SS_CAM"
+            cv2.namedWindow(window_name, cv2.WINDOW_NORMAL) # Create a window
+        
+            scale_factor = 3  # Scale factor for the window
+            new_width = IM_WIDTH * scale_factor
+            new_height = IM_HEIGHT * scale_factor
+            cv2.resizeWindow(window_name, new_width, new_height) # Resize the window
+
+            cv2.imshow(window_name, i3)  # Display the image
             cv2.waitKey(1)
 
             image_tensor = torch.tensor(normalized_image, dtype=torch.float).unsqueeze(0).permute(0, 3, 1, 2)  # Convert the image to a tensor
@@ -137,6 +146,20 @@ class Environment(gym.Env):
             print(f"Error in process_img: {e}")
         return None
 
+    # Process the image from the RGB camera and display it
+    def display_img(self, image):
+        try:
+            i = np.array(image.raw_data).reshape((image.height, image.width, 4))  # Adicione reshape para garantir o formato correto
+            i = i[:, :, :3]  # Ignore o canal alfa se estiver presente
+
+            window_name = "Bird View Camera"
+            cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)  # Create a window
+            
+            cv2.imshow(window_name, i)  # Display the image
+            cv2.waitKey(1)
+
+        except Exception as e:
+            print(f"Error in display_img: {e}")
 
     # Get the spawn points of the sensors and attach them to the ego vehicle
     def get_spawn_sensors(self, sensor_name):
@@ -151,6 +174,15 @@ class Environment(gym.Env):
             # Adjust sensor relative to vehicle
             spawn_point = carla.Transform(carla.Location(x=-5, z=3))
 
+        elif sensor_name == RGB_CAMERA:
+            # Bird's eye view camera settings
+            sensor_bp.set_attribute('image_size_x', '320')
+            sensor_bp.set_attribute('image_size_y', '320')
+            sensor_bp.set_attribute('fov', '110')
+
+            # Adjust sensor relative to vehicle
+            spawn_point = carla.Transform(carla.Location(x=0, z=10), carla.Rotation(pitch=-90))
+
         else: # If the sensor is a collision sensor
             spawn_point = carla.Transform(carla.Location(x=0, z=1))
 
@@ -160,10 +192,12 @@ class Environment(gym.Env):
         if sensor_name == SS_CAMERA:
             self.camera = sensor
             self.camera.listen(lambda data: self.process_img(data))  # Set up the listener here
+        elif sensor_name == RGB_CAMERA:
+            self.bev_camera = sensor
+            self.bev_camera.listen(lambda data: self.display_img(data))  # Set up the listener here
         else:
             self.collision_sensor = sensor
             self.collision_sensor.listen(lambda event: self.on_collision())  # Set up the listener here
-
 
 # ------------------------ Observations ---------------------------
     # Get the observations of the environment
@@ -220,8 +254,7 @@ class Environment(gym.Env):
             return distance, angle_rad
 
 
-
-# ---------------------------------------------------
+# ---------------------- Reset Environment -----------------------------
     # Reset the environment
     def reset(self, seed=None, options=None):
         super().reset(seed=seed) # Reset the environment
@@ -276,7 +309,8 @@ class Environment(gym.Env):
         self.set_other_vehicles()
         self.generate_path()
         self.get_spawn_sensors(SS_CAMERA)  
-        self.get_spawn_sensors(COLLISION_SENSOR)  
+        self.get_spawn_sensors(COLLISION_SENSOR)
+        self.get_spawn_sensors(RGB_CAMERA)  # Add the birdview sensor
 
         # Reset all variables
         self.timesteps = 0 # Reset the timesteps
@@ -287,6 +321,7 @@ class Environment(gym.Env):
 
         print("Environment reset complete.")
         return observation, {}
+
 
 
 # ----------------------  Step and Reward -----------------------------
