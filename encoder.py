@@ -1,6 +1,11 @@
-# https://github.com/idreesshaikh/Autonomous-Driving-in-Carla-using-Deep-Reinforcement-Learning/blob/main/autoencoder/encoder.py
+'''This script defines a VariationalEncoder class for use in deep reinforcement learning applications, specifically in autonomous 
+driving simulations using CARLA. The class, based on a variational autoencoder (VAE) architecture, encodes input images into a 
+latent space representation. 
 
-import os
+This implementation was used from a repository on GitHub 
+(https://github.com/idreesshaikh/Autonomous-Driving-in-Carla-using-Deep-Reinforcement-Learning/blob/main/autoencoder/encoder.py), 
+ensuring compatibility with GPU or CPU depending on availability.'''
+
 import torch
 import torch.nn as nn
 

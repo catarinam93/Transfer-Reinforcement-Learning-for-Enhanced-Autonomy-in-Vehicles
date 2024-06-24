@@ -1,3 +1,7 @@
+'''This script establishes a connection to a CARLA simulation server, enabling interaction with the virtual environment. 
+It defines a Connection class that manages the host, port, and town parameters, and attempts to connect to the server, 
+handling any errors that occur during the process.'''
+
 import glob
 import os
 import sys
