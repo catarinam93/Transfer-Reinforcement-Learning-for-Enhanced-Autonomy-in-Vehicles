@@ -114,6 +114,9 @@ def main():
     if not os.path.exists(logdir):
         os.makedirs(logdir)
 
+    if not os.path.exists(graphs_dir):
+        os.makedirs(graphs_dir)
+
     # Define training parameters
     TIMESTEPS = 50000  # 50,000 timesteps per iteration
     iters = 100  # Total of 100 iterations
