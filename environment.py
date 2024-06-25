@@ -291,16 +291,28 @@ class Environment(gym.Env):
 
         # Destroy the existing environment
         try:
+            
             if self.sensor_list:
                 self.client.apply_batch([carla.command.DestroyActor(x) for x in self.sensor_list])
-
+            
             if self.actor_list:
                 self.client.apply_batch([carla.command.DestroyActor(x) for x in self.actor_list])
 
             if self.walker_list:
                 self.client.apply_batch([carla.command.DestroyActor(x) for x in range(1, len(self.walker_list), 2)])
             
-            time.sleep(0.5) # Wait for the environment to be destroyed
+            time.sleep(1) # Wait for the environment to be destroyed
+
+           # Verify destruction
+            all_actors = self.world.get_actors()
+            remaining_sensors = [actor.id for actor in all_actors if actor.id in self.sensor_list]
+            remaining_actors = [actor.id for actor in all_actors if actor.id in self.actor_list]
+            remaining_walkers = [actor.id for actor in all_actors if actor.id in self.walker_list]
+           
+            if not remaining_sensors and not remaining_actors and not remaining_walkers:
+                print("Environment Reseted Successfully.")
+            else: 
+                print("Some actors were not destroyed.")
 
             # Clear the lists
             self.sensor_list.clear()
@@ -312,17 +324,7 @@ class Environment(gym.Env):
 
         except Exception as e:
             print(f"Error during environment reset: {e}")
-            # Verify destruction
-            all_actors = self.world.get_actors()
-            remaining_sensors = [actor.id for actor in all_actors if actor.id in self.sensor_list]
-            remaining_actors = [actor.id for actor in all_actors if actor.id in self.actor_list]
-            remaining_walkers = [actor.id for actor in all_actors if actor.id in self.walker_list]
-           
-            if not remaining_sensors and not remaining_actors and not remaining_walkers:
-                print("All was destroyed successfully.")
-            else: 
-                print("Some actors were not destroyed.")
-
+        
         # Create a new environment
         self.get_spawn_ego(EGO_NAME)
         self.create_pedestrians()
