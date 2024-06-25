@@ -116,11 +116,11 @@ class Environment(gym.Env):
                 distance = len(cur_route) # Update the distance
                 self.route = cur_route # Update the route
 
-        # Draw the route in the simulation window (Note: it does not get into the camera of the car)
-        for waypoint in self.route:
-            self.world.debug.draw_string(waypoint[0].transform.location, '^', draw_shadow=False,
-                color=carla.Color(r=0, g=0, b=255), life_time=600.0,
-                persistent_lines=True)
+        # # Draw the route in the simulation window (Note: it does not get into the camera of the car)
+        # for waypoint in self.route:
+        #     self.world.debug.draw_string(waypoint[0].transform.location, '^', draw_shadow=False,
+        #         color=carla.Color(r=0, g=0, b=255), life_time=600.0,
+        #         persistent_lines=True)
             
         self.initial_len_route = len(self.route) # Get the initial length of the route for percentage calculation
 
@@ -299,8 +299,11 @@ class Environment(gym.Env):
                 self.client.apply_batch([carla.command.DestroyActor(x) for x in self.actor_list])
 
             if self.walker_list:
-                self.client.apply_batch([carla.command.DestroyActor(x) for x in range(1, len(self.walker_list), 2)])
-            
+                # Destroying the controllers 
+                self.client.apply_batch([carla.command.DestroyActor(x) for x in self.walker_list[::2]])
+                # Destroying the walkers
+                self.client.apply_batch([carla.command.DestroyActor(x) for x in self.walker_list[1::2]])
+
             time.sleep(1) # Wait for the environment to be destroyed
 
            # Verify destruction
@@ -314,13 +317,24 @@ class Environment(gym.Env):
             else: 
                 print("Some actors were not destroyed.")
 
-            # Clear the lists
+            # Reset all variables
             self.sensor_list.clear()
             self.actor_list.clear()
             self.walker_list.clear()
+            self.features_accumulator.clear() 
             self.ego_vehicle = None
             self.camera = None
             self.collision_sensor = None
+            self.bev_camera = None
+            self.route = None
+            self.timesteps = 0 
+            self.reward = 0 
+            self.collision_occured = 0 
+            self.terminated = False
+            self.waypoints_route_completed = 0
+            self.number_of_collisions = 0 
+            self.initial_len_route = 0
+            
 
         except Exception as e:
             print(f"Error during environment reset: {e}")
@@ -334,14 +348,7 @@ class Environment(gym.Env):
         self.get_spawn_sensors(COLLISION_SENSOR)
         self.get_spawn_sensors(RGB_CAMERA)
 
-        # Reset all variables
-        self.timesteps = 0 
-        self.reward = 0 
-        self.collision_occured = 0 
-        self.terminated = False
-        self.waypoints_route_completed = 0
-        self.features_accumulator.clear() 
-        self.number_of_collisions = 0 
+        
         observation = self.get_obs()
 
         return observation, {}
