@@ -89,19 +89,14 @@ def main():
     try:
         client, world = Connection(args.host,args.port, args.town).connect()
         logging.info("Connection has been setup successfully.")
-    except:
+    except Exception as e:
         logging.error("Connection has been refused by the server.")
         ConnectionRefusedError
 
     # ----------------------------------------------- Environment and VAE ---------------------------------------------- 
-    encoder = VariationalEncoder(LATENT_DIM) 
+    encoder = VariationalEncoder(LATENT_DIM)
     encoder.load()
 
-    # Register and create the custom environment
-    gym.register(id='Carla_Env', entry_point=lambda: Environment(client, world, args, encoder))
-    env = gym.make('Carla_Env')
-
-    # ----------------------------------------------- PPO Algorithm ----------------------------------------------
     # Define directories for saving models and logging
     models_dir = "models/PPO"
     graphs_dir = "graphs"
@@ -117,20 +112,16 @@ def main():
     if not os.path.exists(graphs_dir):
         os.makedirs(graphs_dir)
 
-    if not os.path.exists(graphs_dir):
-        os.makedirs(graphs_dir)
+    # Register and create the custom environment
+    gym.register(id='Carla_Env', entry_point=lambda: Environment(client, world, args, encoder, graphs_dir), max_episode_steps=ENV_MAX_STEPS)
+    env = gym.make('Carla_Env')
+
+    # ----------------------------------------------- PPO Algorithm ----------------------------------------------
 
     # Define training parameters
-    TIMESTEPS = 50000  # 50,000 timesteps per iteration
+    TIMESTEPS = 10000  # 10,000 timesteps per iteration
     iters = 100  # Total of 100 iterations
     model = PPO("MlpPolicy", env, verbose=1, tensorboard_log=logdir) # Create the model
-
-    # Initialize lists to store data for plotting
-    timesteps = []
-    collisions = []
-    percentages = []
-
-    total_timesteps = 0
 
     for i in range(iters):
         print("================================ Iteration", i + 1, " ================================")
@@ -147,15 +138,6 @@ def main():
         # Save the model after each iteration
         print(f"Saving the model to {models_dir}/{(i + 1)}")
         model.save(f"{models_dir}/{(i + 1)}")
-
-        # Collect data for plotting
-        total_timesteps += TIMESTEPS
-        timesteps.append(total_timesteps)
-        collisions.append(env.number_of_collisions)
-        percentages.append((env.waypoints_route_completed / env.initial_len_route) * 100)
-
-        # Plot graphs at the end of each iteration
-        plot_graphs(timesteps, collisions, percentages, graphs_dir, i + 1)
 
 if __name__ == '__main__':
     try:

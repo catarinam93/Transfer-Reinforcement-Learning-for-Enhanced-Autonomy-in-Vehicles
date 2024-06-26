@@ -13,6 +13,7 @@ import random
 from connection import carla
 import numpy as np
 import cv2
+import matplotlib.pyplot as plt
 import time
 import gymnasium as gym
 from gymnasium import spaces
@@ -20,6 +21,7 @@ from settings import *
 import sys
 import torch
 from collections import deque
+from threading import Lock
 
 sys.path.append('C:\\Users\\Caty\\Downloads\\CARLA_0.9.15\\WindowsNoEditor\\PythonAPI\\carla')
 from agents.navigation.global_route_planner import GlobalRoutePlanner
@@ -27,33 +29,46 @@ from agents.navigation.global_route_planner import GlobalRoutePlanner
 
 # Environment class
 class Environment(gym.Env):
-    def __init__(self, client, world, args, encoder):
-        self.client = client
+    def __init__(self, client, world, args, encoder, graphs_dir):
+        self.client = client # Get the client of the simulation
         self.world = world # Get the Town of the simulation
         self.args = args # Get the arguments of the simulation
+
+        self.graphs_dir = graphs_dir # Get the directory to save the graphs
+
         self.ego_vehicle = None # Ego vehicle
+        self.ego_bp = self.world.get_blueprint_library().find(EGO_NAME) # Get the blueprint of the ego vehicle
         self.start_point = None # Start point of the ego vehicle
-        self.spawn_points = None # Spawn points of the ego vehicle
+        self.spawn_points = self.world.get_map().get_spawn_points() # Get all the spawn points in the map
         self.route = None # Route of the ego vehicle
         self.initial_len_route = 0 # Initial length of the route
+
         self.collision_occured = 0 # Collision flag
+        self.lane_invasion_occured = 0 # Lane invasion flag
         self.number_of_collisions = 0 # Number of collisions
         self.waypoints_route_completed = 0 # Percentage of the route completed
+        self.vel_zero = 0 # Number of timesteps the vehicle has not moved
+        self.timesteps = 0 # Number of timesteps
+
+        self.all_timesteps = []
+        self.all_collisions = []
+        self.all_routes_completed = []
+        self.all_rewards = []
 
         self.encoder = encoder # Encoder of the environment
         self.n_camera_features = 97 # Number of camera features
         self.features_accumulator = deque(maxlen=5) # Buffer to store the camera features
+        self.features_lock = Lock() # Lock to synchronize the features
 
         self.actor_list = [] # List of actors in the environment
         self.sensor_list = [] # List of sensors in the environment
         self.walker_list = [] # List of walkers in the environment
         self.camera = None # Camera sensor
         self.collision_sensor = None # Collision sensor
-        self.bev_camera = None # Bird's eye view camera sensor
 
         # Limits for the action space
         self.linear_velocity_low = 0.0 # Low limit of the linear velocity
-        self.linear_velocity_high = 1.0 # High limit of the linear velocity
+        self.linear_velocity_high = 15.0 # High limit of the linear velocity
         self.break_low = 0.0 # Low limit of the break
         self.break_high = 1.0 # High limit of the break
         self.angular_velocity_low = -1.0 # Low limit of the angular velocity
@@ -70,6 +85,8 @@ class Environment(gym.Env):
         self.len_route_high = np.inf # High limit of the length of the route
         self.collision_occured_low = 0 # Low limit of the collision flag
         self.collision_occured_high =  1 # High limit of the collision flag
+        self.lane_invasion_occured_low = 0 # Low limit of the lane invasion flag
+        self.lane_invasion_occured_high = 1 # High limit of the lane invasion flag
 
         # Size of the observation space
         self.camera_features_size = 95 # Size of the camera features
@@ -77,29 +94,29 @@ class Environment(gym.Env):
         self.angle_size = 1 # Size of the angle
         self.len_route_size = 1 # Size of the length of the route
         self.collision_occured_size = 1 # Size of the collision flag
+        self.lane_invasion_occured_size = 1 # Size of the lane invasion flag
 
         # Total size of the observation space
-        self.total_observation_size = self.camera_features_size + self.distance_size + self.angle_size + self.len_route_size + self.collision_occured_size
+        self.total_observation_size = self.camera_features_size + self.distance_size + self.angle_size + self.len_route_size + self.collision_occured_size + self.lane_invasion_occured_size	
 
         # Action and observation space
         self.action_space = spaces.Box(low=np.array([self.linear_velocity_low, self.angular_velocity_low, self.break_low]), 
                                         high=np.array([self.linear_velocity_high, self.angular_velocity_high, self.break_high]), 
                                         dtype=np.float64)
 
-        self.observation_space = spaces.Box(low=np.array([self.camera_features_low] * self.camera_features_size + [self.distance_low] + [self.angle_low] + [self.len_route_low] + [self.collision_occured_low]), 
-                                            high=np.array([self.camera_features_high] * self.camera_features_size + [self.distance_high] + [self.angle_high] + [self.len_route_high] + [self.collision_occured_high]), 
+        self.observation_space = spaces.Box(low=np.array([self.camera_features_low] * self.camera_features_size + [self.distance_low] + [self.angle_low] + [self.len_route_low] + [self.collision_occured_low] + [self.lane_invasion_occured_low]), 
+                                            high=np.array([self.camera_features_high] * self.camera_features_size + [self.distance_high] + [self.angle_high] + [self.len_route_high] + [self.collision_occured_high] + [self.lane_invasion_occured_high]), 
                                             dtype=np.float64)
 
 
 # ---------------------- Ego Vehicle -----------------------------
     # Get the ego vehicle and spawn it in the world on the start point
-    def get_spawn_ego(self, ego_name):
-        self.spawn_points = self.world.get_map().get_spawn_points() # Get all the spawn points in the map
-        ego_bp = self.world.get_blueprint_library().find(ego_name) # Get the blueprint of the ego vehicle
+    def get_spawn_ego(self):
         self.start_point = random.choice(self.spawn_points) # Choose a random spawn point to initiate the ego vehicle to avoid overfitting
-        self.ego_vehicle = self.world.try_spawn_actor(ego_bp, self.start_point) # Spawn the ego vehicle in the world
-
-
+        try:
+            self.ego_vehicle = self.world.try_spawn_actor(self.ego_bp, self.start_point) # Spawn the ego vehicle in the world
+        except Exception as e:
+            print(f"Error spawning the vehicle: {e}")
 # ---------------------- Route Generation -----------------------------
     # Generate the longest route possible regarding the start_point for the ego vehicle to follow
     def generate_path(self):
@@ -130,55 +147,46 @@ class Environment(gym.Env):
     def on_collision(self):
         self.collision_occured = 1
     
-    # Process the image from the SSC and Collision sensors and display it
+    # Function to handle the lane invasion sensor
+    def on_lane_invasion(self):
+        self.lane_invasion_occured = 1
+    
+    # Process the image from the SSC and display it
     def process_img(self, image):
         try:
             i = np.array(image.raw_data)  # Convert the image to a numpy array
             i2 = i.reshape((IM_HEIGHT, IM_WIDTH, 4))  # Reshaping the array to the image size
             i3 = i2[:, :, :3]  # Remove the alpha channel
             normalized_image = i3 / 255.0  # Normalize the image
-
-            window_name = "SS_CAM"
-            cv2.namedWindow(window_name, cv2.WINDOW_NORMAL) # Create a window
+           
+            # Display the image using OpenCV
+            # window_name = "SS_CAM"
+            # cv2.namedWindow(window_name, cv2.WINDOW_NORMAL) # Create a window
         
-            scale_factor = 3  # Scale factor for the window
-            new_width = IM_WIDTH * scale_factor
-            new_height = IM_HEIGHT * scale_factor
-            cv2.resizeWindow(window_name, new_width, new_height) # Resize the window
+            # scale_factor = 3  # Scale factor for the window
+            # new_width = IM_WIDTH * scale_factor
+            # new_height = IM_HEIGHT * scale_factor
+            # cv2.resizeWindow(window_name, new_width, new_height) # Resize the window
 
-            cv2.imshow(window_name, i3)  # Display the image
-            cv2.waitKey(1) # Wait for a key press
-
+            # cv2.imshow(window_name, i3)  # Display the image
+            # cv2.waitKey(1) # Wait for a key press
+            # print("cv2.imshow")
             image_tensor = torch.tensor(normalized_image, dtype=torch.float).unsqueeze(0).permute(0, 3, 1, 2)  # Convert the image to a tensor
-
+            
             # Check if CUDA is available and move encoder and tensor to the appropriate device
             device = torch.device("cuda" if torch.cuda.is_available() else "cpu") # Check if CUDA is available
             self.encoder.to(device) # Move the encoder to the device
             image_tensor = image_tensor.to(device) # Move the tensor to the device
-
+          
             with torch.no_grad():
                 features = self.encoder(image_tensor)  # Get the latent features of the image
 
-            self.features_accumulator.append(features)  # Append the features to the accumulator
-
+            with self.features_lock:
+                self.features_accumulator.append(features)  # Append the features to the accumulator
+            
         except Exception as e:
             print(f"Error in process_img: {e}")
         return None
-
-    # Process the image from the RGB camera and display it
-    def display_img(self, image):
-        try:
-            i = np.array(image.raw_data).reshape((image.height, image.width, 4)) # Convert the image to a numpy array
-            i = i[:, :, :3] # Remove the alpha channel
-
-            window_name = "Bird View Camera"
-            cv2.namedWindow(window_name, cv2.WINDOW_NORMAL) # Create a window
-            
-            cv2.imshow(window_name, i) # Display the image
-            cv2.waitKey(1) # Wait for a key press
-
-        except Exception as e:
-            print(f"Error in display_img: {e}")
 
     # Get the spawn points of the sensors and attach them to the ego vehicle
     def get_spawn_sensors(self, sensor_name):
@@ -193,16 +201,7 @@ class Environment(gym.Env):
             # Adjust sensor relative to vehicle
             spawn_point = carla.Transform(carla.Location(x=-5, z=3))
 
-        elif sensor_name == RGB_CAMERA:
-            # Bird's eye view camera settings
-            sensor_bp.set_attribute('image_size_x', '320')
-            sensor_bp.set_attribute('image_size_y', '320')
-            sensor_bp.set_attribute('fov', '110')
-
-            # Adjust sensor relative to vehicle
-            spawn_point = carla.Transform(carla.Location(x=0, z=10), carla.Rotation(pitch=-90))
-
-        else: # If the sensor is a collision sensor
+        else: # If the sensor is a collision sensor or lane invasion sensor
             spawn_point = carla.Transform(carla.Location(x=0, z=1))
 
         # Spawn the sensor, attaching them to vehicle.
@@ -213,12 +212,14 @@ class Environment(gym.Env):
         if sensor_name == SS_CAMERA:
             self.camera = sensor
             self.camera.listen(lambda data: self.process_img(data)) # Listen to the sensor data
-        elif sensor_name == RGB_CAMERA:
-            self.bev_camera = sensor
-            self.bev_camera.listen(lambda data: self.display_img(data)) # Listen to the sensor data
-        else:
+        elif sensor_name == COLLISION_SENSOR:
             self.collision_sensor = sensor
             self.collision_sensor.listen(lambda event: self.on_collision()) # Listen to the sensor data
+        elif sensor_name == LANE_SENSOR:
+            self.lane_sensor = sensor
+            self.lane_sensor.listen(lambda event: self.on_lane_invasion()) # Listen to the sensor data
+        else:
+            print("Sensor not found.")
 
 # ------------------------ Observations ---------------------------
     # Get the observations of the environment
@@ -227,7 +228,11 @@ class Environment(gym.Env):
         
         # Wait for the features to be accumulated
         while len(self.features_accumulator) == 0:
-            time.sleep(0.05)
+                time.sleep(0.05)
+
+        # Make a copy of the accumulator to compute average safely
+        with self.features_lock:
+            accumulator_copy = list(self.features_accumulator)
 
         # Get the average of the features for the last 5 frames for several reasons:
         # 1. To reduce the noise and variations in the features
@@ -236,11 +241,11 @@ class Environment(gym.Env):
         # 4. To reduce the dimensionality of the observation
         # 5. To provide a more informative observation
         # 6. To provide a more robust observation
-        if self.features_accumulator:
-            average_features = sum(self.features_accumulator) / len(self.features_accumulator)
+        if accumulator_copy:
+            average_features = sum(accumulator_copy) / len(accumulator_copy)
 
         # Concatenate and flatten all observation components into a single array
-        observation = np.concatenate([average_features.cpu().numpy().flatten(), np.array([distance, angle, len(self.route), self.collision_occured])])
+        observation = np.concatenate([average_features.cpu().numpy().flatten(), np.array([distance, angle, len(self.route), self.collision_occured, self.lane_invasion_occured])])
         
         return observation
 
@@ -285,6 +290,15 @@ class Environment(gym.Env):
 
 
 # ---------------------- Reset Environment -----------------------------
+    def place_spectator_above_vehicle(self):
+            while self.ego_vehicle is None:
+                print("Fail spawning the ego, trying again")
+                self.get_spawn_ego()
+            
+            location = self.ego_vehicle.get_location() # Get the location of the ego vehicle
+            spectator = self.world.get_spectator() # Get the spectator of the simulation
+            spectator.set_transform(carla.Transform(location + carla.Location(z=50), carla.Rotation(pitch=-90))) # Set the spectator above the vehicle
+            
     # Reset the environment
     def reset(self, seed=None, options=None):
         super().reset(seed=seed) # Reset the environment
@@ -293,16 +307,26 @@ class Environment(gym.Env):
         try:
             
             if self.sensor_list:
-                self.client.apply_batch([carla.command.DestroyActor(x) for x in self.sensor_list])
-            
+                # self.client.apply_batch([carla.command.DestroyActor(x) for x in self.sensor_list])
+                for sensor in self.sensor_list:
+                    sensor.destroy()
+           
             if self.actor_list:
-                self.client.apply_batch([carla.command.DestroyActor(x) for x in self.actor_list])
+                # self.client.apply_batch([carla.command.DestroyActor(x) for x in self.actor_list])
+                for actor in self.actor_list:
+                    actor.destroy()
 
             if self.walker_list:
-                # Destroying the controllers 
-                self.client.apply_batch([carla.command.DestroyActor(x) for x in self.walker_list[::2]])
-                # Destroying the walkers
-                self.client.apply_batch([carla.command.DestroyActor(x) for x in self.walker_list[1::2]])
+                # # Destroying the controllers 
+                # self.client.apply_batch([carla.command.DestroyActor(x) for x in self.walker_list[::2]])
+                # # Destroying the walkers
+                # self.client.apply_batch([carla.command.DestroyActor(x) for x in self.walker_list[1::2]])
+                for walker in self.walker_list:
+                    walker.destroy()
+
+            # Destroying the ego vehicle
+            if self.ego_vehicle is not None:
+                self.ego_vehicle.destroy()
 
             time.sleep(1) # Wait for the environment to be destroyed
 
@@ -325,44 +349,49 @@ class Environment(gym.Env):
             self.ego_vehicle = None
             self.camera = None
             self.collision_sensor = None
-            self.bev_camera = None
             self.route = None
             self.timesteps = 0 
             self.reward = 0 
             self.collision_occured = 0 
+            self.lane_invasion_occured = 0
             self.terminated = False
             self.waypoints_route_completed = 0
             self.number_of_collisions = 0 
             self.initial_len_route = 0
-            
+            self.vel_zero = 0
 
         except Exception as e:
             print(f"Error during environment reset: {e}")
-        
+
         # Create a new environment
-        self.get_spawn_ego(EGO_NAME)
+        self.get_spawn_ego()
         self.create_pedestrians()
         self.set_other_vehicles()
         self.generate_path()
         self.get_spawn_sensors(SS_CAMERA)  
         self.get_spawn_sensors(COLLISION_SENSOR)
-        self.get_spawn_sensors(RGB_CAMERA)
+        try:
+            self.place_spectator_above_vehicle()
+        except Exception as e:
+            print(f"Error in reset: {e}")
 
-        
         observation = self.get_obs()
-
+        print("------------------------------------------------------")
         return observation, {}
     
 
 # ----------------------  Step and Reward -----------------------------
     # Calculate the reward based on the environment state
-    def calculate_reward(self, linear_velocity, distance_to_next_waypoint, angle_toward_next_waypoint, len_route, collision_occured):
+    def calculate_reward(self, linear_velocity, distance_to_next_waypoint, angle_toward_next_waypoint, len_route, collision_occured, lane_invasion_occured):
         # If there was a collision, terminate the episode and penalize the reward
         if collision_occured:
             self.number_of_collisions += 1
             self.reward += COLLISION_PENALTY
             self.terminated = True
             return
+
+        elif lane_invasion_occured:
+            self.reward += LANE_INVASION_PENALTY
         
         # If the vehicle reached the destination, reward the agent
         elif len_route == 0:
@@ -374,10 +403,14 @@ class Environment(gym.Env):
         elif angle_toward_next_waypoint > THETA:
             self.reward += ANGLE_PENALTY
         
-        # If the vehicle is moving to fast (above max speed) or is not moving, penalize the agent
+        # If the vehicle is moving to fast (above max speed), penalize the agent
         # MAX_SPEED = 13.89 -> 50 km/h in m/s (approximate value)
-        elif linear_velocity > MAX_SPEED or linear_velocity == 0:
+        elif linear_velocity > MAX_SPEED:
             self.reward +=  SPEED_PENALTY
+        
+        # If the vehicle is not moving, penalize the agent
+        elif linear_velocity == 0:
+            self.reward += NOT_MOVE_SPEED
 
         # If the vehicle has reached the next waypoint, reward the agent
         # WAYPOINT_THRESHOLD = 0.1 -> Proximity distance to consider waypoint reached (approximate value)
@@ -398,6 +431,11 @@ class Environment(gym.Env):
         ego_vehicle_control = carla.VehicleControl(throttle=float(linear_velocity), steer = float(angular_velocity), brake = float(break_value))
         self.ego_vehicle.apply_control(ego_vehicle_control)
         
+        if linear_velocity == 0:
+            self.vel_zero += 1 
+        else:
+            self.vel_zero = 0
+        
         # Wait for some time to allow the vehicle to move
         time.sleep(0.5)
         
@@ -407,11 +445,56 @@ class Environment(gym.Env):
         angle_toward_next_waypoint = observation[self.camera_features_size + 1]
         len_route = observation[self.camera_features_size + 2]
         collision_occured = observation[self.camera_features_size + 3]
+        lane_invasion_occured = observation[self.camera_features_size + 4]
 
-        self.calculate_reward(linear_velocity, distance_to_next_waypoint, angle_toward_next_waypoint, len_route, collision_occured) # Calculate the reward
+        self.calculate_reward(linear_velocity, distance_to_next_waypoint, angle_toward_next_waypoint, len_route, collision_occured, lane_invasion_occured) # Calculate the reward
+
+        # If the vehicle has not moved for a long time, terminate the episode
+        if self.vel_zero >= 100:
+            self.terminated = True
+
+        self.timesteps += 1 # Increment the number of timesteps
+
+        if self.terminated:
+            print(f"Episode ended with reward {self.reward}.")
+
+            self.all_timesteps.append(self.timesteps)
+            self.all_collisions.append(self.number_of_collisions)
+            self.all_routes_completed.append((self.waypoints_route_completed / self.initial_len_route) * 100)
+            self.all_rewards.append(self.reward)
+            
+            self.plot_accumulated_data()
 
         return observation, self.reward, self.terminated, False, {}  # Return the observation, reward, terminated flag, truncated flag, and info dictionary
 
+# ---------------------- Plotting the Grids -----------------------------
+    def plot_accumulated_data(self):
+        save_path=self.graphs_dir
+
+        plt.figure()
+        plt.plot(self.all_timesteps, self.all_collisions, label='Number of Collisions Over Time')
+        plt.title('Number of Collisions Over Time')
+        plt.xlabel('Timesteps')
+        plt.ylabel('Collisions')
+        plt.savefig(f"{save_path}/{self.all_timesteps}/collisions.png")
+        plt.close()
+
+        plt.figure()
+        plt.plot(self.all_timesteps, self.all_routes_completed, label='Percentage of the Route Completed Over Time')
+        plt.title('Percentage of the Route Completed Over Time')
+        plt.xlabel('Timesteps')
+        plt.ylabel('Route Percentage Completed (%)')
+        plt.savefig(f"{save_path}/{self.all_timesteps}/route.png")
+        plt.close()
+
+        plt.figure()
+        plt.plot(self.all_timesteps, self.all_rewards, label='Reward Over Time')
+        plt.title('Reward Over Time')
+        plt.xlabel('Timesteps')
+        plt.ylabel('Reward')
+        plt.savefig(f"{save_path}/{self.all_timesteps}/reward.png")
+        plt.close()
+        print("5")
 
 # -------------------- Setting the rest of the environment -------------------------------
     # Creating and spawning pedestrians in the world
