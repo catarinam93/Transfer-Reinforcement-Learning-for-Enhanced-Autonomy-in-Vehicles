@@ -60,27 +60,6 @@ def parse_args():
     
     return args
 
-# Function to plot graphs for the number of collisions and the percentage of the route completed
-def plot_graphs(timesteps, collisions, percentages, graphs_dir, iteration):
-    plt.figure()
-    plt.plot(timesteps, collisions, label='Number of Collisions')
-    plt.xlabel('Number of Timesteps')
-    plt.ylabel('Number of Collisions')
-    plt.title('Collisions Over Time')
-    plt.legend()
-    plt.savefig(f"{graphs_dir}/collisions_{iteration}.png")
-    plt.close()
-
-    plt.figure()
-    plt.plot(timesteps, percentages, label='Percentage of Route Completed')
-    plt.xlabel('Number of Timesteps')
-    plt.ylabel('Percentage of Route Completed (%)')
-    plt.title('Route Completion Over Time')
-    plt.legend()
-    plt.savefig(f"{graphs_dir}/route_completion_{iteration}.png")
-    plt.close()
-
-
 # Main function
 def main():
     args = parse_args()
@@ -121,13 +100,17 @@ def main():
     # Define training parameters
     TIMESTEPS = 10000  # 10,000 timesteps per iteration
     iters = 100  # Total of 100 iterations
-    model = PPO("MlpPolicy", env, verbose=1, tensorboard_log=logdir) # Create the model
 
     for i in range(iters):
         print("================================ Iteration", i + 1, " ================================")
+        
         # Check if there are previously trained models
         model_path = f"{models_dir}/{i}.zip"
-        if os.path.exists(model_path):
+        if i == 0 or not os.path.exists(model_path):
+            # On the first iteration or if no model is found, create a new model
+            model = PPO("MlpPolicy", env, verbose=1, tensorboard_log=logdir)
+        else:
+            # Load the trained model from the previous iteration
             print(f"Loading the trained model from {model_path}")
             model = PPO.load(model_path, env)
         

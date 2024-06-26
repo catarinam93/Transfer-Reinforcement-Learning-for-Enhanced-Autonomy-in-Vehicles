@@ -20,6 +20,7 @@ from gymnasium import spaces
 from settings import *
 import sys
 import torch
+import os
 from collections import deque
 from threading import Lock
 
@@ -51,6 +52,7 @@ class Environment(gym.Env):
         self.timesteps = 0 # Number of timesteps
 
         self.all_timesteps = []
+        self.accumulated_timesteps = 0
         self.all_collisions = []
         self.all_routes_completed = []
         self.all_rewards = []
@@ -302,66 +304,64 @@ class Environment(gym.Env):
     # Reset the environment
     def reset(self, seed=None, options=None):
         super().reset(seed=seed) # Reset the environment
-
+        
         # Destroy the existing environment
-        try:
-            
-            if self.sensor_list:
-                # self.client.apply_batch([carla.command.DestroyActor(x) for x in self.sensor_list])
-                for sensor in self.sensor_list:
-                    sensor.destroy()
-           
-            if self.actor_list:
-                # self.client.apply_batch([carla.command.DestroyActor(x) for x in self.actor_list])
-                for actor in self.actor_list:
-                    actor.destroy()
+        if self.sensor_list:
+            self.client.apply_batch([carla.command.DestroyActor(x) for x in self.sensor_list])
+            # for sensor in self.sensor_list:
+            #     print("sensor_list")
+            #     sensor.destroy()
 
-            if self.walker_list:
-                # # Destroying the controllers 
-                # self.client.apply_batch([carla.command.DestroyActor(x) for x in self.walker_list[::2]])
-                # # Destroying the walkers
-                # self.client.apply_batch([carla.command.DestroyActor(x) for x in self.walker_list[1::2]])
-                for walker in self.walker_list:
-                    walker.destroy()
+        if self.actor_list:
+            self.client.apply_batch([carla.command.DestroyActor(x) for x in self.actor_list])
+            # print(len(self.actor_list))
+            # for actor in self.actor_list:
+            #     print("actor_list")
+            #     actor.destroy()
+      
+        if self.walker_list:
+            # Destroying the controllers 
+            self.client.apply_batch([carla.command.DestroyActor(x) for x in self.walker_list[::2]])
+            # Destroying the walkers
+            self.client.apply_batch([carla.command.DestroyActor(x) for x in self.walker_list[1::2]])
+            # for walker in self.walker_list:
+            #     walker.destroy()
+     
+        # Destroying the ego vehicle
+        if self.ego_vehicle is not None:
+            self.ego_vehicle.destroy()
 
-            # Destroying the ego vehicle
-            if self.ego_vehicle is not None:
-                self.ego_vehicle.destroy()
+        time.sleep(1) # Wait for the environment to be destroyed
 
-            time.sleep(1) # Wait for the environment to be destroyed
+        # Verify destruction
+        all_actors = self.world.get_actors()
+        remaining_sensors = [actor.id for actor in all_actors if actor.id in self.sensor_list]
+        remaining_actors = [actor.id for actor in all_actors if actor.id in self.actor_list]
+        remaining_walkers = [actor.id for actor in all_actors if actor.id in self.walker_list]
+        
+        if not remaining_sensors and not remaining_actors and not remaining_walkers:
+            print("Environment Reseted Successfully.")
+        else: 
+            print("Some actors were not destroyed.")
 
-           # Verify destruction
-            all_actors = self.world.get_actors()
-            remaining_sensors = [actor.id for actor in all_actors if actor.id in self.sensor_list]
-            remaining_actors = [actor.id for actor in all_actors if actor.id in self.actor_list]
-            remaining_walkers = [actor.id for actor in all_actors if actor.id in self.walker_list]
-           
-            if not remaining_sensors and not remaining_actors and not remaining_walkers:
-                print("Environment Reseted Successfully.")
-            else: 
-                print("Some actors were not destroyed.")
-
-            # Reset all variables
-            self.sensor_list.clear()
-            self.actor_list.clear()
-            self.walker_list.clear()
-            self.features_accumulator.clear() 
-            self.ego_vehicle = None
-            self.camera = None
-            self.collision_sensor = None
-            self.route = None
-            self.timesteps = 0 
-            self.reward = 0 
-            self.collision_occured = 0 
-            self.lane_invasion_occured = 0
-            self.terminated = False
-            self.waypoints_route_completed = 0
-            self.number_of_collisions = 0 
-            self.initial_len_route = 0
-            self.vel_zero = 0
-
-        except Exception as e:
-            print(f"Error during environment reset: {e}")
+        # Reset all variables
+        self.sensor_list.clear()
+        self.actor_list.clear()
+        self.walker_list.clear()
+        self.features_accumulator.clear() 
+        self.ego_vehicle = None
+        self.camera = None
+        self.collision_sensor = None
+        self.route = None
+        self.timesteps = 0 
+        self.reward = 0 
+        self.collision_occured = 0 
+        self.lane_invasion_occured = 0
+        self.terminated = False
+        self.waypoints_route_completed = 0
+        self.number_of_collisions = 0 
+        self.initial_len_route = 0
+        self.vel_zero = 0
 
         # Create a new environment
         self.get_spawn_ego()
@@ -458,25 +458,27 @@ class Environment(gym.Env):
         if self.terminated:
             print(f"Episode ended with reward {self.reward}.")
 
-            self.all_timesteps.append(self.timesteps)
+            self.accumulated_timesteps += self.timesteps
+            self.all_timesteps.append(self.accumulated_timesteps)
             self.all_collisions.append(self.number_of_collisions)
             self.all_routes_completed.append((self.waypoints_route_completed / self.initial_len_route) * 100)
             self.all_rewards.append(self.reward)
-            
-            self.plot_accumulated_data()
 
+            self.plot_accumulated_data()
+            
         return observation, self.reward, self.terminated, False, {}  # Return the observation, reward, terminated flag, truncated flag, and info dictionary
 
 # ---------------------- Plotting the Grids -----------------------------
     def plot_accumulated_data(self):
-        save_path=self.graphs_dir
+        save_path = f"{self.graphs_dir}/{str(self.all_timesteps[len(self.all_timesteps)-1])}"
+        os.makedirs(save_path, exist_ok=True)
 
         plt.figure()
         plt.plot(self.all_timesteps, self.all_collisions, label='Number of Collisions Over Time')
         plt.title('Number of Collisions Over Time')
         plt.xlabel('Timesteps')
         plt.ylabel('Collisions')
-        plt.savefig(f"{save_path}/{self.all_timesteps}/collisions.png")
+        plt.savefig(f"{save_path}/collisions.png")
         plt.close()
 
         plt.figure()
@@ -484,7 +486,7 @@ class Environment(gym.Env):
         plt.title('Percentage of the Route Completed Over Time')
         plt.xlabel('Timesteps')
         plt.ylabel('Route Percentage Completed (%)')
-        plt.savefig(f"{save_path}/{self.all_timesteps}/route.png")
+        plt.savefig(f"{save_path}/route.png")
         plt.close()
 
         plt.figure()
@@ -492,10 +494,9 @@ class Environment(gym.Env):
         plt.title('Reward Over Time')
         plt.xlabel('Timesteps')
         plt.ylabel('Reward')
-        plt.savefig(f"{save_path}/{self.all_timesteps}/reward.png")
+        plt.savefig(f"{save_path}/reward.png")
         plt.close()
-        print("5")
-
+        
 # -------------------- Setting the rest of the environment -------------------------------
     # Creating and spawning pedestrians in the world
     def create_pedestrians(self):

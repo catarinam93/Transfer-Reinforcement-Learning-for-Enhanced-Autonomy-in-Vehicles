@@ -26,12 +26,12 @@ LANE_SENSOR = 'sensor.other.lane_invasion'
 
 COLLISION_PENALTY = -100.0  # High penalty for collisions
 DESTINATION_REWARD = 10000.0  # High reward upon reaching the destination
-ANGLE_PENALTY = -10.0  # Moderate penalty for large angles relative to the next waypoint
+ANGLE_PENALTY = -40.0  # Moderate penalty for large angles relative to the next waypoint
 SPEED_PENALTY = -10.0  # Moderate penalty for very high
 NOT_MOVE_SPEED = -50.0  # Moderate penalty for not moving
-WAYPOINT_REWARD = 50.0  # Moderate reward for approaching a waypoint
-NEUTRAL_REWARD = 10.0  # Neutral reward for other states
-LANE_INVASION_PENALTY = -50.0  # Moderate penalty for lane invasions
+WAYPOINT_REWARD = 60.0  # Moderate reward for approaching a waypoint
+NEUTRAL_REWARD = 30.0  # Neutral reward for other states
+LANE_INVASION_PENALTY = - 40.0  # Moderate penalty for lane invasions
 
 THETA = np.pi / 4  # Angle threshold for angle penalty (45 degrees)
 MAX_SPEED = 13.89  # 50 km/h in m/s (approximate value)
