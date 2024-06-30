@@ -29,7 +29,7 @@ DESTINATION_REWARD = 10000.0  # High reward upon reaching the destination
 ANGLE_PENALTY = -40.0  # Moderate penalty for large angles relative to the next waypoint
 SPEED_PENALTY = -10.0  # Moderate penalty for very high
 NOT_MOVE_SPEED = -50.0  # Moderate penalty for not moving
-WAYPOINT_REWARD = 60.0  # Moderate reward for approaching a waypoint
+WAYPOINT_REWARD = 100.0  # Moderate reward for approaching a waypoint
 NEUTRAL_REWARD = 30.0  # Neutral reward for other states
 LANE_INVASION_PENALTY = - 40.0  # Moderate penalty for lane invasions
 

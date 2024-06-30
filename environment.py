@@ -12,7 +12,9 @@ The environment is equipped to handle collisions, compute rewards, and reset its
 import random
 from connection import carla
 import numpy as np
-import cv2
+# import cv2
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import time
 import gymnasium as gym
@@ -119,6 +121,7 @@ class Environment(gym.Env):
             self.ego_vehicle = self.world.try_spawn_actor(self.ego_bp, self.start_point) # Spawn the ego vehicle in the world
         except Exception as e:
             print(f"Error spawning the vehicle: {e}")
+
 # ---------------------- Route Generation -----------------------------
     # Generate the longest route possible regarding the start_point for the ego vehicle to follow
     def generate_path(self):
@@ -142,7 +145,6 @@ class Environment(gym.Env):
         #         persistent_lines=True)
             
         self.initial_len_route = len(self.route) # Get the initial length of the route for percentage calculation
-
 
 # ---------------------- Sensors -----------------------------
     # Function to handle the collision sensor
@@ -251,7 +253,6 @@ class Environment(gym.Env):
         
         return observation
 
-
     # Get the distance and angle towards the next waypoint
     def distance_angle_towards_waypoint(self):  
         current_position = np.array([self.ego_vehicle.get_location().x, self.ego_vehicle.get_location().y, self.ego_vehicle.get_location().z]) # Get the current position of the vehicle
@@ -259,8 +260,8 @@ class Environment(gym.Env):
         distance = np.linalg.norm(next_waypoint_position - current_position)  # Calculate the distance between the vehicle and the next waypoint
 
         # Verify if the vehicle has passed the waypoint
-        # If the distance is negative, the vehicle has passed the waypoint
-        if distance < 0:
+        # If the distance is less that the threshold, the vehicle has passed the waypoint
+        if distance < WAYPOINT_THRESHOLD:
             self.route = self.route[1:]  # Remove the waypoint from the route
             self.waypoints_route_completed += 1  # Increment the percentage of the route completed
             return self.distance_angle_towards_waypoint()  # Recalculate the distance and angle towards the next waypoint
@@ -289,7 +290,6 @@ class Environment(gym.Env):
             angle_rad = np.arccos(np.clip(dot_product, -1.0, 1.0)) # Calculate the angle between the vehicle and the next waypoint
             
             return distance, angle_rad
-
 
 # ---------------------- Reset Environment -----------------------------
     def place_spectator_above_vehicle(self):
@@ -365,15 +365,15 @@ class Environment(gym.Env):
 
         # Create a new environment
         self.get_spawn_ego()
-        self.create_pedestrians()
-        self.set_other_vehicles()
+        # self.create_pedestrians()
+        # self.set_other_vehicles()
         self.generate_path()
         self.get_spawn_sensors(SS_CAMERA)  
         self.get_spawn_sensors(COLLISION_SENSOR)
-        try:
-            self.place_spectator_above_vehicle()
-        except Exception as e:
-            print(f"Error in reset: {e}")
+        # try:
+        #     self.place_spectator_above_vehicle()
+        # except Exception as e:
+        #     print(f"Error setting the spectator: {e}")
 
         observation = self.get_obs()
         print("------------------------------------------------------")

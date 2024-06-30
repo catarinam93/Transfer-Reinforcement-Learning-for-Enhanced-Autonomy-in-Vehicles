@@ -21,7 +21,6 @@ from environment import Environment
 from stable_baselines3 import PPO
 import gymnasium as gym
 import os
-import matplotlib.pyplot as plt
 
 # Function to parse the arguments
 def parse_args():
@@ -42,7 +41,7 @@ def parse_args():
         '--town', 
         type=str, 
         default="Town01", 
-        help='Town of the simulation (default: Town10HD)')
+        help='Town of the simulation (default: Town01)')
     argparser.add_argument(
         '--seedw',
         metavar='S',
@@ -77,16 +76,12 @@ def main():
     encoder.load()
 
     # Define directories for saving models and logging
-    models_dir = "models/PPO"
+    models_dir = "models/Town01/PPO"
     graphs_dir = "graphs"
-    logdir = "tensorboard"
 
     # Create directories if they don't exist
     if not os.path.exists(models_dir):
         os.makedirs(models_dir)
-
-    if not os.path.exists(logdir):
-        os.makedirs(logdir)
     
     if not os.path.exists(graphs_dir):
         os.makedirs(graphs_dir)
@@ -100,15 +95,16 @@ def main():
     # Define training parameters
     TIMESTEPS = 10000  # 10,000 timesteps per iteration
     iters = 100  # Total of 100 iterations
-
-    for i in range(iters):
+    # print(client.show_recorder_file_info("recording01.log"))
+    # client.start_recorder("/home/carla/recording01.log", True)
+    for i in range(9,iters):
         print("================================ Iteration", i + 1, " ================================")
         
         # Check if there are previously trained models
         model_path = f"{models_dir}/{i}.zip"
         if i == 0 or not os.path.exists(model_path):
             # On the first iteration or if no model is found, create a new model
-            model = PPO("MlpPolicy", env, verbose=1, tensorboard_log=logdir)
+            model = PPO("MlpPolicy", env, verbose=1)
         else:
             # Load the trained model from the previous iteration
             print(f"Loading the trained model from {model_path}")
@@ -121,7 +117,7 @@ def main():
         # Save the model after each iteration
         print(f"Saving the model to {models_dir}/{(i + 1)}")
         model.save(f"{models_dir}/{(i + 1)}")
-
+    # client.stop_recorder()
 if __name__ == '__main__':
     try:
         main()
