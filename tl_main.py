@@ -77,7 +77,7 @@ def main():
     encoder.load()
 
     # Define directories for saving models and logging
-    models_dir = "models/Town02/PPO/No_Traffic"
+    models_dir = "models/Town02/PPO/Traffic"
     graphs_dir = "graphs"
 
     # Create directories if they don't exist
@@ -96,25 +96,28 @@ def main():
 
     # Define training parameters
     TIMESTEPS = 10000  # 10,000 timesteps per iteration
-    iters = 50 # Total of 100 iterations
+    iters = 50 # Total of 50 iterations
 
     # Load the trained model from Town01
-    model_path_town01 = f"models/Town01/PPO/10.zip"
+    model_path_town01 = "models/Town01/PPO/10.zip"
     print(f"Loading the trained model from {model_path_town01}")
     model_town01 = PPO.load(model_path_town01, env)
+
+    # Extract parameters from model_town01
+    params_town01 = model_town01.get_parameters()
 
     for i in range(iters):
         print("================================ Iteration", i + 1, " ================================")
 
         # Check if there are previously trained models for Town02
-        model_path_town02 = f"{models_dir}/Town02/PPO/No_Traffic{i}.zip"
+        model_path_town02 = f"{models_dir}/{i}.zip"
         if i == 0 or not os.path.exists(model_path_town02):
             # On the first iteration or if no model is found, create a new model for Town02
             model_town02 = PPO("MlpPolicy", env, verbose=1)
             # Initialize with weights from model_town01
-            if i == 0 and os.path.exists(model_path_town01):
+            if i == 0:
                 print(f"Initializing Town02 model with weights from Town01 model: {model_path_town01}")
-                model_town02.set_parameters(model_town01.policy.parameters())
+                model_town02.set_parameters(params_town01)
         else:
             # Load the trained model from the previous iteration for Town02
             print(f"Loading the trained model from {model_path_town02}")
@@ -125,8 +128,8 @@ def main():
         model_town02.learn(total_timesteps=TIMESTEPS, reset_num_timesteps=False, tb_log_name="ppo")
 
         # Save the model_town02 after each iteration
-        print(f"Saving the model_town02 to {models_dir}/Town02/{(i + 1)}")
-        model_town02.save(f"{models_dir}/Town02/{(i + 1)}")
+        print(f"Saving the model_town02 to {models_dir}/{(i + 1)}.zip")
+        model_town02.save(f"{models_dir}/{(i + 1)}.zip")
 
 if __name__ == '__main__':
     try:

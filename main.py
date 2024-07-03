@@ -95,9 +95,8 @@ def main():
     # Define training parameters
     TIMESTEPS = 10000  # 10,000 timesteps per iteration
     iters = 100  # Total of 100 iterations
-    # print(client.show_recorder_file_info("recording01.log"))
-    # client.start_recorder("/home/carla/recording01.log", True)
-    for i in range(9,iters):
+
+    for i in range(iters):
         print("================================ Iteration", i + 1, " ================================")
         
         # Check if there are previously trained models
@@ -117,7 +116,7 @@ def main():
         # Save the model after each iteration
         print(f"Saving the model to {models_dir}/{(i + 1)}")
         model.save(f"{models_dir}/{(i + 1)}")
-    # client.stop_recorder()
+   
 if __name__ == '__main__':
     try:
         main()

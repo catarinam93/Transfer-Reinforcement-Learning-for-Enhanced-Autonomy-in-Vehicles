@@ -365,15 +365,15 @@ class Environment(gym.Env):
 
         # Create a new environment
         self.get_spawn_ego()
-        # self.create_pedestrians()
-        # self.set_other_vehicles()
+        self.create_pedestrians()
+        self.set_other_vehicles()
         self.generate_path()
         self.get_spawn_sensors(SS_CAMERA)  
         self.get_spawn_sensors(COLLISION_SENSOR)
-        # try:
-        #     self.place_spectator_above_vehicle()
-        # except Exception as e:
-        #     print(f"Error setting the spectator: {e}")
+        try:
+            self.place_spectator_above_vehicle()
+        except Exception as e:
+            print(f"Error setting the spectator: {e}")
 
         observation = self.get_obs()
         print("------------------------------------------------------")
