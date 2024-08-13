@@ -131,7 +131,7 @@ tained from a [GitHub repository](https://github.com/idreesshaikh/Autonomous-Dri
 on 12,000 160x80 semantically segmented images collected during automatic
 and manual driving sessions.
 
-![PPO Network](Images/PPO Network (extended).png)
+![PPO Network](Images/PPO_Network_(extended).png)
 
 #### RL algorithm chosen
 * PPO
