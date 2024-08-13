@@ -42,8 +42,8 @@ Town02 is a small town with numerous T-junctions and a variety
 of buildings, there are patches of coniferous trees, a park and a residential
 and commercial area.
 
-![Town01](images/Town01_aerial.jpg)
-![Town02](images/Town02_aerial.jpg)
+![Town01](Images/Town01_aerial.jpg)
+![Town02](Images/Town02_aerial.jpg)
 
 In Town02, to enhance the realism of the simulation, dynamic elements
 such as pedestrians and other vehicles were incorporated. To assess the
@@ -94,7 +94,7 @@ of all individual dimensions, resulting in a comprehensive vector that cap-
 tures the environmental state perceived by the autonomous vehicle during
 navigation.
 
-![Observations](images/Observations.jpg)
+![Observations](Images/Observations.jpg)
 
 #### Route Generation
 The process of spawning the vehicle and generating its navigation route is
@@ -110,7 +110,7 @@ challenges. This methodology mitigates the risk of overfitting to specific
 conditions, thereby promoting the development of navigation policies that
 generalize effectively across varied urban driving environments.
 
-![Route](images/Route.jpg)
+![Route](Images/Route.jpg)
 
 #### Sensors and Variational AutoEncoder
 In autonomous driving systems, sensors are pivotal components that en-
@@ -131,7 +131,7 @@ tained from a [GitHub repository](https://github.com/idreesshaikh/Autonomous-Dri
 on 12,000 160x80 semantically segmented images collected during automatic
 and manual driving sessions.
 
-![PPO Network](images/PPO Network (extended).png)
+![PPO Network](Images/PPO Network (extended).png)
 
 #### RL algorithm chosen
 * PPO
