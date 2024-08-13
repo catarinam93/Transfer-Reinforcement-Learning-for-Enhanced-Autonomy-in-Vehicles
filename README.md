@@ -94,7 +94,7 @@ of all individual dimensions, resulting in a comprehensive vector that cap-
 tures the environmental state perceived by the autonomous vehicle during
 navigation.
 
-![Observations](Images/Observations.jpg)
+![Observations](Images/Observations.png)
 
 #### Route Generation
 The process of spawning the vehicle and generating its navigation route is
@@ -110,7 +110,7 @@ challenges. This methodology mitigates the risk of overfitting to specific
 conditions, thereby promoting the development of navigation policies that
 generalize effectively across varied urban driving environments.
 
-![Route](Images/Route.jpg)
+![Route](Images/Route.png)
 
 #### Sensors and Variational AutoEncoder
 In autonomous driving systems, sensors are pivotal components that en-
