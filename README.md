@@ -76,19 +76,26 @@ ranging from 0.0 (no braking) to 1.0 (full braking).
 The observation space is based on the sensory inputs to the autonomous
 vehicle, enabling it to perceive and interact with its environment effectively.
 It is also represented as a continuous Box, encompassing several dimensions:
-• Camera Features: This dimension comprises 95 visual features ex
+
+• **Camera Features:** This dimension comprises 95 visual features ex
 tracted from the semantic segmented camera feed, providing detailed
 environmental information.
-• Distance: Represents the distance between the vehicle and specific
+
+• **Distance:** Represents the distance between the vehicle and specific
 objects or reference points in the environment.
-• Angle: Indicates the orientation angle of the vehicle relative to a
+
+• **Angle:** Indicates the orientation angle of the vehicle relative to a
 reference point, measured in radians.
-• Length of the Route: Specifies the total planned length of the
+
+• **Length of the Route:** Specifies the total planned length of the
 vehicle’s route or trajectory.
-• Collision Occurred: A binary flag (0 or 1) indicating whether a
+
+• **Collision Occurred:** A binary flag (0 or 1) indicating whether a
 collision has occurred (1 if yes, 0 if no).
-• Lane Invasion Occured: A binary flag (0 or 1) indicating whether
+
+• **Lane Invasion Occured:** A binary flag (0 or 1) indicating whether
 a lane invasion has occurred (1 if yes, 0 if no).
+
 The total size of the observation space is computed by summing the sizes
 of all individual dimensions, resulting in a comprehensive vector that cap
 tures the environmental state perceived by the autonomous vehicle during
@@ -141,27 +148,34 @@ The reward function in the autonomous driving simulation system serves to
 evaluate the agent’s actions and encourage behaviors that contribute to safe
 and efficient navigation. It consists of several conditions that dynamically
 adjust the reward based on the current state of the environment:
-• Collision Penalty: If a collision occurs, a high penalty is applied,
+
+• **Collision Penalty:** If a collision occurs, a high penalty is applied,
 and the episode is terminated. This ensures that the agent learns to
 avoid collisions, which are critical for safe operation.
-• Angle Penalty: If the angle between the vehicle’s direction and
+
+• **Angle Penalty:** If the angle between the vehicle’s direction and
 the next waypoint exceeds a threshold, a penalty is applied. This
 encourages the agent to follow smoother paths towards waypoints,
 promoting more natural and efficient navigation.
-• Lane Invasion Penalty: If a lane invasion has occurred, a penalty
+
+• **Lane Invasion Penalty:** If a lane invasion has occurred, a penalty
 is applied. This incentivizes the agent to stay in its road, providing a
 more secure driving.
-• Speed Penalties:
+
+• **Speed Penalties:**
 If the vehicle exceeds the maximum speed, a penalty is applied.
 This discourages excessively fast driving.
 If the vehicle is stationary, a penalty is applied. This discourages
 idling and encourages continuous movement.
-• Waypoint Reward: When the vehicle approaches a waypoint within
+
+• **Waypoint Reward:** When the vehicle approaches a waypoint within
 a defined threshold, a moderate reward is given. This encourages
 progress towards waypoints and goal-oriented behavior.
-• Destination Reward: Upon reaching the destination, a high reward
+
+• **Destination Reward:** Upon reaching the destination, a high reward
 is given, and the episode is terminated. This incentivizes the agent to
 successfully navigate to the intended destination.
-• Neutral Reward: For states where none of the above conditions ap
+
+• **Neutral Reward:** For states where none of the above conditions ap
 ply (else clause), a neutral reward is assigned. This maintains stability
 in the reward system during non-critical states.
