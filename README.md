@@ -3,18 +3,18 @@ Project of the course Project-Internship of Artificial Intelligence and Data Sci
 
 ## A little context
 ### Overview
-This study investigates the application of reinforcement learning, specif-
-ically the Proximal Policy Optimization (PPO) algorithm, in training au-
+This study investigates the application of reinforcement learning, specif
+ically the Proximal Policy Optimization (PPO) algorithm, in training au
 tonomous vehicles to navigate complex urban environments. Utilizing the
 CARLA simulator, the research focuses on addressing the challenges posed
-by unpredictable traffic patterns, diverse road conditions, and varying pedes-
+by unpredictable traffic patterns, diverse road conditions, and varying pedes
 trian behaviors. The project utilizes two urban settings, Town01 for initial
 training and Town02 for transfer learning, to evaluate the generalization of
 learned behaviors. Equipped with collision sensors and semantic segmented
 cameras, the autonomous vehicle’s performance is assessed under varying
 traffic densities. Key objectives include evaluating the efficacy of the PPO
-algorithm in urban navigation and exploring the potential of transfer learn-
-ing to generalize learned behaviors across different urban scenarios. Experi-
+algorithm in urban navigation and exploring the potential of transfer learn
+ing to generalize learned behaviors across different urban scenarios. Experi
 mental results are analyzed to highlight the strengths and limitations of the
 approach, with a particular emphasis on the influence of traffic density on
 performance. The findings underscore the importance of adaptability and
@@ -23,9 +23,9 @@ urban driving challenges.
 
 ### The simulator
 To achieve the objectives of this project, the CARLA simulator was selected
-as the simulation environment. CARLA is an open-source simulator de-
+as the simulation environment. CARLA is an open-source simulator de
 signed specifically for autonomous driving research. It provides a highly
-realistic urban environment that is ideal for training and evaluating au-
+realistic urban environment that is ideal for training and evaluating au
 tonomous vehicle navigation systems.
 
 ### The urban environments
@@ -52,22 +52,22 @@ one without any vehicles or pedestrians, similar to Town01 and a second
 where 30 vehicles and 10 pedestrians were included, 10% of the pedestrians
 can cross the street, with the other 90% remaining on the sidewalks.
 By utilizing Town01 for training and Town02 for transfer learning, and
-incorporating autonomous pedestrians and vehicles, it was aimed to cre-
+incorporating autonomous pedestrians and vehicles, it was aimed to cre
 ate a comprehensive and challenging simulation environment, ensuring that
 the autonomous vehicle is exposed to realistic and unpredictable scenarios,
-which are crucial for developing robust navigation algorithms. This method-
+which are crucial for developing robust navigation algorithms. This method
 ology was designed to rigorously test and refine the autonomous vehicle’s
-ability to navigate safely and efficiently in diverse and dynamic urban land-
+ability to navigate safely and efficiently in diverse and dynamic urban land
 scapes.
 
 #### Action Space
-The action space in this autonomous vehicle navigation environment is rep-
+The action space in this autonomous vehicle navigation environment is rep
 resented as a continuous Box, which defines the permissible range of actions
 the agent can take. It consists of three dimensions:
 • Linear Velocity: Controls the forward speed of the vehicle, ranging
 from 0.0 (no velocity) to 15.0 (maximum permissible velocity).
 • Angular Velocity: Governs the rotational speed of the vehicle around
-the vertical axis, with values ranging from -1.0 (counterclockwise ro-
+the vertical axis, with values ranging from -1.0 (counterclockwise ro
 tation) to 1.0 (clockwise rotation).
 • Brake: Determines the intensity of braking applied to the vehicle,
 ranging from 0.0 (no braking) to 1.0 (full braking).
@@ -76,7 +76,7 @@ ranging from 0.0 (no braking) to 1.0 (full braking).
 The observation space is based on the sensory inputs to the autonomous
 vehicle, enabling it to perceive and interact with its environment effectively.
 It is also represented as a continuous Box, encompassing several dimensions:
-• Camera Features: This dimension comprises 95 visual features ex-
+• Camera Features: This dimension comprises 95 visual features ex
 tracted from the semantic segmented camera feed, providing detailed
 environmental information.
 • Distance: Represents the distance between the vehicle and specific
@@ -90,7 +90,7 @@ collision has occurred (1 if yes, 0 if no).
 • Lane Invasion Occured: A binary flag (0 or 1) indicating whether
 a lane invasion has occurred (1 if yes, 0 if no).
 The total size of the observation space is computed by summing the sizes
-of all individual dimensions, resulting in a comprehensive vector that cap-
+of all individual dimensions, resulting in a comprehensive vector that cap
 tures the environmental state perceived by the autonomous vehicle during
 navigation.
 
@@ -104,7 +104,7 @@ class, configured to generate paths with a high degree of randomness. The
 objective is to maximize the route’s length while maintaining realism and
 variability in the training data.
 By integrating randomness into both the vehicle spawn location and the
-route generation process, the simulation environment facilitates comprehen-
+route generation process, the simulation environment facilitates comprehen
 sive training scenarios that prepare the autonomous vehicle for real-world
 challenges. This methodology mitigates the risk of overfitting to specific
 conditions, thereby promoting the development of navigation policies that
@@ -113,8 +113,8 @@ generalize effectively across varied urban driving environments.
 ![Route](Images/Route.png)
 
 #### Sensors and Variational AutoEncoder
-In autonomous driving systems, sensors are pivotal components that en-
-able vehicles to perceive and interact with their environment. Three sen-
+In autonomous driving systems, sensors are pivotal components that en
+able vehicles to perceive and interact with their environment. Three sen
 sors were utilized: the collision sensor, the Semantic Segmentation Camera
 (SSC) which passes through a Variational Autoencoder (VAE), and the lane
 invasion sensor.
@@ -126,7 +126,7 @@ latent space representation, preserving critical environmental details while
 reducing the data’s dimensionality. This representation is essential for tasks
 such as object recognition, path planning, and obstacle avoidance, providing
 the vehicle with a robust understanding of its surroundings.
-A pre-trained Variational Autoencoder (VAE) model was utilized ob-
+A pretrained Variational Autoencoder (VAE) model was utilized ob
 tained from a [GitHub repository](https://github.com/idreesshaikh/Autonomous-Driving-in-Carla-using-Deep-Reinforcement-Learning/tree/main). The VAE model was originally trained
 on 12,000 160x80 semantically segmented images collected during automatic
 and manual driving sessions.
@@ -162,6 +162,6 @@ progress towards waypoints and goal-oriented behavior.
 • Destination Reward: Upon reaching the destination, a high reward
 is given, and the episode is terminated. This incentivizes the agent to
 successfully navigate to the intended destination.
-• Neutral Reward: For states where none of the above conditions ap-
+• Neutral Reward: For states where none of the above conditions ap
 ply (else clause), a neutral reward is assigned. This maintains stability
 in the reward system during non-critical states.
