@@ -1,5 +1,5 @@
 # Transfer-Reinforcement-Learning-for-Enhanced-Autonomy-in-Vehicles
-Project of the course Project-Internship of Artificial Intelligence and Data Science (3rd year, 2nd semester)
+Project of the course Project-Internship of Artificial Intelligence and Data Science (BSc in Artificial Intelligence and Data Science 3rd year, 2nd semester)
 
 ## A little context
 ### Overview
